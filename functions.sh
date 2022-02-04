@@ -1,5 +1,34 @@
-# get current user
-currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
+# Source: https://raw.githubusercontent.com/Installomator/Installomator/dev/fragments/functions.sh
+
+
+
+# MARK: Functions
+
+cleanupAndExit() { # $1 = exit code, $2 message
+    if [[ -n $2 && $1 -ne 0 ]]; then
+        printlog "ERROR: $2"
+    fi
+    if [ "$DEBUG" -ne 1 ]; then
+        # remove the temporary working directory when done
+        printlog "Deleting $tmpDir"
+        rm -Rf "$tmpDir"
+    fi
+
+    if [ -n "$dmgmount" ]; then
+        # unmount disk image
+        printlog "Unmounting $dmgmount"
+        hdiutil detach "$dmgmount"
+    fi
+    # If we closed any processes, reopen the app again
+    reopenClosedProcess
+    printlog "################## End Installomator, exit code $1 \n\n"
+    # if label is wrong and we wanted name of the label, then return ##################
+    if [[ $RETURN_LABEL_NAME -eq 1 ]]; then
+        1=0
+        echo "#"
+    fi
+    exit "$1"
+}
 
 runAsUser() {
     if [[ $currentUser != "loginwindow" ]]; then

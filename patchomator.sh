@@ -1,15 +1,15 @@
 #!/bin/zsh
 
-# Done:
-# read through Installomator script for labels.
-# parse label name and expectedTeamID packageID
-# match to codesign -dvvv of *.app 
-# packageID to Identifier
-# expectedTeamID to TeamIdentifier
-
 # To Do:
 # differentiate between labels that install the same app (firefox, etc) 
 # without -r, parse generated config, pipe to Installomator to install updates
+
+# Done:
+# read through Installomator script for labels.
+# parse label name, expectedTeamID, packageID
+# match to codesign -dvvv of *.app 
+# packageID to Identifier
+# expectedTeamID to TeamIdentifier
 
 
 # default paths
