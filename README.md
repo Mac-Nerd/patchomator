@@ -3,6 +3,7 @@ Management script for Installomator.
 
 Large portions of this come directly from Installomator:
 https://github.com/Installomator/Installomator
+
 Installomator is Copyright 2020 Armin Briegel, Scripting OS X
 
 This script must be run with root/sudo privileges.
