@@ -1,5 +1,8 @@
 #!/bin/zsh
 
+# Version: 2022.02.04.NFY
+# (Not Finished Yet)
+
 # To Do:
 # differentiate between labels that install the same app (firefox, etc) 
 # without -r, parse generated config, pipe to Installomator to install updates
