@@ -1,3 +1,10 @@
+# Sample file to demonstrate disambiguation of labels with overlapping app names
+# Lines are interpreted by patchomator to determine if the installed version of Firefox.app
+# is the one described by the label.
+# To test:
+#	./patchomator.sh -i firefoxen.sh
+
+
 firefox)
 	name="Firefox"
 	type="dmg"
