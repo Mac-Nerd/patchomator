@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2022.02.04.NFY
+# Version: 2022.03.04.NFY
 # (Not Finished Yet)
 
 # To Do:
@@ -21,6 +21,10 @@ configfile=("/etc/patchomator/config.txt")
 
 
 # Functions
+
+source "./functions.sh"
+
+
 makefile() {
   mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) && touch $1
 }
@@ -66,8 +70,9 @@ if [ $(whoami) != "root" ]; then
     exit 1
 fi
 
+InstallomatorPATH=$InstallomatorPATH[-1]
 
-notice "path to Installomator.sh: $InstallomatorPATH[-1]"
+notice "path to Installomator.sh: $InstallomatorPATH"
 
 if ! [[ -f $InstallomatorPATH ]]
 then
@@ -76,17 +81,19 @@ then
 fi
 
 
-notice "Config file: $configfile[-1]"
+configfile=$configfile[-1]
+
+notice "Config file: $configfile"
 
 
-if ! [[ -f $configfile[-1] ]] 
+if ! [[ -f $configfile ]] 
 then
 	notice "No config file at $configfile[-1]. Creating one now."
-	makefile $configfile[-1]
+	makefile $configfile
 elif [[ ${#refresh} -eq 1 ]]
 then 
 	echo "Refreshing $configfile"
-	makefile $configfile[-1]
+	makefile $configfile
 fi
 
 
@@ -96,9 +103,27 @@ fi
 # get current user
 currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
 
-#label_re='^([a-z0-9\_-]*)(\)|\|\\)$'
-label_re='^([a-z0-9\_-]*)(\))$'
-endlabel_re='^(    |\t);;$'
+uid=$(id -u "$currentUser")
+        
+notice "CurrentUser: $currentUser"
+notice "UID: $uid"
+userLanguage=$(runAsUser defaults read .GlobalPreferences AppleLocale)
+notice "userLanguage: $userLanguage"
+
+
+# start of label pattern
+#label_re='^([a-z0-9\_-]*)(\))$'
+# how to acommodate ?
+#firefoxesr|\
+#firefoxesrpkg)
+label_re='^([a-z0-9\_-]*)(\)|\|\\)$'
+
+# lines are stripped of leading whitespace with sed - handy, since some labels are inconsistent tabs/spaces
+# comment
+comment_re='^\#$'
+
+# end of label pattern
+endlabel_re='^;;'
 
 targetDir="/"
 versionKey="CFBundleShortVersionString"
@@ -106,13 +131,7 @@ versionKey="CFBundleShortVersionString"
 # Array to store what's installed, so we can save it for later
 InstalledLabelsArray=()
 
-
-
-
-
-
 getAppVersion() {
-
 	# pkgs contains a version number, then we don't have to search for an app
 	if [[ $packageID != "" ]]; then
 		
@@ -134,7 +153,6 @@ getAppVersion() {
 	fi
 	
 	# get app in /Applications, or /Applications/Utilities, or find using Spotlight
-
 	notice "Searching system for $appName"
 	
 	if [[ -d "/Applications/$appName" ]]; then
@@ -151,7 +169,7 @@ getAppVersion() {
 	if [[ ${#appPathArray} -gt 0 ]]; then
 
 		echo "Found $applist"
-
+		
 		filteredAppPaths=( ${(M)appPathArray:#${targetDir}*} )
 
 		if [[ ${#filteredAppPaths} -eq 1 ]]; then
@@ -161,23 +179,28 @@ getAppVersion() {
 
 			notice "Label: $label_name"
 			notice "--- found app at $installedAppPath"
-			
+						
 			# Is current app from App Store
-			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]];then
+			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]]
+			then
 				notice "--- $appName is from App Store. Skipping."
-			else
-				verifyTeamID $installedAppPath
-
+				return
+			# Check disambiguation
+			elif ! $disambiguation
+			then
+				echo "$installedAppPath is not '$label_name'"
+				notice "--- Wrong version of $appName installed. Skipping."
+				return
 			fi
-			
+
+			verifyApp $installedAppPath
+      
 		fi
 
 	fi
 }
 
-
-
-verifyTeamID() {
+verifyApp() {
 
 	appPath=$1
 
@@ -189,12 +212,10 @@ verifyTeamID() {
         return
     fi
 
-
     if [ "$expectedTeamID" != "$teamID" ]; then
         error "Team IDs do not match"
         return
     else
-		InstalledLabelsArray+=( "$label_name" )
 
 # run the commands in current_label to check for the new version string
 		newversion=$(zsh << SCRIPT_EOF
@@ -203,7 +224,9 @@ ${current_label}
 echo "\$appNewVersion" 
 SCRIPT_EOF
 )
-		 
+
+		InstalledLabelsArray+=( "$label_name" )
+
 		notice "--- Installed version: ${appversion}"
 		[[ -n "$newversion" ]] && notice "--- Newest version: ${newversion}"
 
@@ -221,62 +244,58 @@ in_label=0
 current_label=""
 
 while read -r line; do 
-    if [[ $in_label -eq 0 && "$line" =~ $label_re ]]; then
-        label_name=${match[1]}
-#		echo "Label: $label_name"
-        in_label=1
-        continue # skips to the next iteration
-    fi
-    
+
+	# xargs strips out whitespace. Handy.
+#	scrubbedLine=$(echo $line | xargs 2> /dev/null)
+
+#	scrubbedLine=${line##*(\s)}
+
+	scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
+
+	if [ -n $scrubbedLine ]; then
+
+	#	echo $in_label        
+
+		if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
+		   label_name=${match[1]}
+		   in_label=1
+		   disambiguation=true
+		   continue # skips to the next iteration
+		fi
+	
+		if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
+			# label complete. A valid label includes a Team ID. If we have one, we can check for installed
+			[[ -n $expectedTeamID ]] && getAppVersion
+
+			in_label=0
+			packageID=""
+			name=""
+			appName=""
+			expectedTeamID=""
+			current_label=""
+			appNewVersion=""
+	
+			continue # skips to the next iteration
+		fi
+	
+		if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
+	# add the label lines to create a "subscript" to check versions and whatnot
+	# if empty, add the first line. Otherwise, you'll get a null line
+			[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
+
+			case $scrubbedLine in
+
+			  'name='*|'packageID'*|'expectedTeamID'*|*'disambiguation'*)
+			  eval "$scrubbedLine"
+			  ;;
+
+			esac
  
-     if [[ $in_label -eq 1 && "$line" =~ $endlabel_re ]]; then
-		
-		# label complete. A valid label includes a Team ID. If we have one, we can check for installed
-		[[ -n $expectedTeamID ]] && getAppVersion
-
-        in_label=0
-		packageID=""
-		name=""
-		appName=""
-		expectedTeamID=""
-		current_label=""
-		appNewVersion=""
-		
-		continue # skips to the next iteration
-    fi
-
-    
-    if [[ $in_label -eq 1 && ! "$line" =~ ^(    |\t)\# ]] ; then
-
-# add the label lines to create a "subscript" to check versions and whatnot
-# if empty, add the first line. Otherwise, you'll get a null line
-		[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
-
-# generally, first line will contain the app name
-		if [[ $(echo $line | xargs 2> /dev/null)  =~ ^name\= ]] 
-		then		
-			eval $line	# name="..."
-#			appName=$(echo "$line" | cut -d'=' -f2)
-#			echo "APP NAME: ${appName}"
-
-# some installers use a packageID instead 
-		elif [[ $(echo $line | xargs 2> /dev/null) =~ ^packageID\= ]]
-		then
-			eval $line	# packageID="..."
-#			packageID=$(echo "$line" | cut -d'=' -f2 | tr -d "\"")
-#			echo "PACKAGE ID: ${packageID}"
-		
-# installed apps will have a team ID
-		elif [[ $(echo $line | xargs 2> /dev/null) =~ ^expectedTeamID\= ]]
-		then
-			eval $line # expectedTeamID="..."
-#			expectedTeamID=$(echo "$line" | cut -d'=' -f2 | tr -d "\"")
 		fi
 		
-    fi
-
+	fi
     
 done <${InstallomatorPATH}
 
-
+echo "Done."
 printf "%s\n" "$InstalledLabelsArray[@]"
