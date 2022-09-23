@@ -1,19 +1,22 @@
 #!/bin/zsh
 
-# Version: 2022.09.22.NFY
+# Version: 2022.09.23.NFY
 # (Not Finished Yet)
 
 # To Do:
-# differentiate between labels that install the same app (firefox, etc) 
-# - offer user selection?
-# - pick the first match, or set a "preferred" flag?
 # without -r, parse generated config, pipe to Installomator to install updates
+# on duplicate labels, skip subsequent verification
+# eval error ;; ?
 
 # Changed:
 # Uses git sparse-checkout to grab and update the labels from 
 # https://github.com/Installomator/Installomator/tree/main/fragments/labels
 
 # Done:
+# added quiet mode, noninteractive mode
+# choose between labels that install the same app (firefox, etc) 
+# - offer user selection
+# - pick the first match (noninteractive mode)
 # parse label name, expectedTeamID, packageID
 # match to codesign -dvvv of *.app 
 # packageID to Identifier
@@ -52,15 +55,22 @@ makefile() {
   mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) && touch $1
 }
 
+error() {
+	echo "[ERROR] $1"
+}
+
 notice() {
     if [[ ${#verbose} -eq 1 ]]; then
         echo "[NOTICE] $1"
     fi
 }
 
-error() {
-	echo "[ERROR] $1"
+infoOut() {
+	if ! [[ ${#quietmode} -eq 1 ]]; then
+		echo "$1"
+	fi
 }
+
 
 usage() {
 	echo "This script must be run with root/sudo privileges."
@@ -72,7 +82,8 @@ usage() {
 	echo "  -y - Non-interactive mode. Accepts the first label that matches an existing app. Use with caution."
 	echo "	-c \"path to config file\" - Default configuration file location /etc/patchomator/patchomator.plist"
 	echo "	-i \"path to Installomator.sh\" - Default Installomator Path /usr/local/Installomator/Installomator.sh"
-	echo "	-v - Verbose mode. Logs more information to stdout."
+	echo "	-q - Quiet mode. Minimal output."
+	echo "	-v - Verbose mode. Logs more information to stdout. Overrides -q"
 	echo "	-h | --help - Show this text."
 	exit 0
 }
@@ -114,133 +125,6 @@ installInstallomator() {
 
 }
 
-getAppVersion() {
-	# pkgs contains a version number, then we don't have to search for an app
-	if [[ $packageID != "" ]]; then
-		
-		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
-		
-		if [[ $appversion != "" ]]; then
-			notice "Label: $label_name"
-			notice "--- found packageID $packageID installed"
-			
-			InstalledLabelsArray+=( "$label_name" )
-			
-			return
-		fi
-	fi
-
-	if [ -z "$appName" ]; then
-		# when not given derive from name
-		appName="$name.app"
-	fi
-	
-	# get app in /Applications, or /Applications/Utilities, or find using Spotlight
-	notice "Searching system for $appName"
-	
-	if [[ -d "/Applications/$appName" ]]; then
-		applist="/Applications/$appName"
-	elif [[ -d "/Applications/Utilities/$appName" ]]; then
-		applist="/Applications/Utilities/$appName"
-	else
-#        applist=$(mdfind "kind:application $appName" -0 )
-		applist=$(mdfind -literal "kMDItemFSName == '$appName'" -0 )
-	fi
-	
-	appPathArray=( ${(0)applist} )
-
-	if [[ ${#appPathArray} -gt 0 ]]; then
-
-		echo "Found $applist"
-		
-		filteredAppPaths=( ${(M)appPathArray:#${targetDir}*} )
-
-		if [[ ${#filteredAppPaths} -eq 1 ]]; then
-			installedAppPath=$filteredAppPaths[1]
-			
-			appversion=$(defaults read $installedAppPath/Contents/Info.plist $versionKey) #Not dependant on Spotlight indexing
-
-			notice "Label: $label_name"
-			notice "--- found app at $installedAppPath"
-						
-			# Is current app from App Store
-			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]]
-			then
-				notice "--- $appName is from App Store. Skipping."
-				return
-			# Check disambiguation
-			else
-				if exists=$(defaults read $configfile $installedAppPath 2> /dev/null)
-				# if [ -n "$exists" ]
-				then 					
-# compare $installedAppPath	with installedAppPath keys in config plist.
-					echo "${appPath} already linked to label ${exists}."
-					if [[ ${#noninteractive} -eq 1 ]]
-					then
-						return
-					else
-						echo "Replace label ${exists} with $label_name? [y/N]"
-						read replaceLabel
-
-						if [[ $replaceLabel =~ '[Yy]' ]]
-						then
-							echo "Replacing."
-							verifyApp $installedAppPath
-						else
-							echo "Skipping."
-							return
-						fi
-					fi					
-				else 
-					verifyApp $installedAppPath
-				fi
-			fi
-		fi
-	fi
-}
-
-verifyApp() {
-
-	appPath=$1
-    notice "Verifying: $appPath"
-
-    # verify with spctl
-    appVerify=$(spctl -a -vv "$appPath" 2>&1 )
-    appVerifyStatus=$(echo $?)
-    teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
-
-    if [[ $appVerifyStatus -ne 0 ]] ; then
-        error "Error verifying $appPath"
-        return
-    fi
-
-    if [ "$expectedTeamID" != "$teamID" ]; then
-    	error "Team IDs do not match: $teamID (expected: $expectedTeamID )"
-        return
-    else
-
-# run the commands in current_label to check for the new version string
-		newversion=$(zsh << SCRIPT_EOF
-source "$fragmentsPATH/functions.sh"
-${current_label}
-echo "\$appNewVersion" 
-SCRIPT_EOF
-)
-
-# 		InstalledLabelsArray+=( "$label_name" )
-
-		/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${label_name}" "$configfile"
-
-		notice "--- Installed version: ${appversion}"
-		[[ -n "$newversion" ]] && notice "--- Newest version: ${newversion}"
-
-		if [[ "$appversion" == "$newversion" ]]
-		then
-			notice "--- Latest version installed."
-		fi
-		
-	fi
-}
 
 
 
@@ -249,7 +133,7 @@ SCRIPT_EOF
 
 
 # Command line options
-zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp y=noninteractive v=verbose r=refresh c:=configfile i:=InstallomatorPATH
+zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp q=quietmode y=noninteractive v=verbose r=refresh c:=configfile i:=InstallomatorPATH
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
@@ -269,7 +153,7 @@ fi
 
 # Check your privilege
 if [ $(whoami) != "root" ]; then
-    echo "This script must be run with root/sudo privileges."
+    error "This script must be run with root/sudo privileges."
     exit 1
 fi
 
@@ -279,7 +163,8 @@ notice "path to Installomator.sh: $InstallomatorPATH"
 
 if ! [[ -f $InstallomatorPATH ]]
 then
-	error "Installomator.sh not found at $InstallomatorPATH. Download and install it now? [y/N]"
+	error "Installomator.sh not found at $InstallomatorPATH."
+	echo -n "Download and install it now? [y/N]: "
 	read DownloadFromGithub
 	
 	if [[ $DownloadFromGithub =~ '[Yy]' ]]; then
@@ -298,16 +183,16 @@ fi
 
 if ! [[ -f $configfile ]] 
 then
-	echo "No config file at $configfile. Creating one now."
+	infoOut "No config file at $configfile. Creating one now."
 	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
 elif [[ ${#refresh} -eq 1 ]]
 then 
-	echo "Refreshing $configfile"
+	infoOut "Refreshing $configfile"
 	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
-	echo "Existing config at $configfile. To refresh the list, re-run patchomator with -r"
-	echo "Passing labels to Installomator."
+	infoOut "Existing config at $configfile. To refresh the list, re-run patchomator with -r"
+	infoOut "Passing labels to Installomator."
 # !!! TBD	
 	
 	exit 0		
@@ -354,6 +239,135 @@ in_label=0
 current_label=""
 
 
+getAppVersion() {
+	# pkgs contains a version number, then we don't have to search for an app
+	if [[ $packageID != "" ]]; then
+		
+		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
+		
+		if [[ $appversion != "" ]]; then
+			notice "Label: $label_name"
+			notice "--- found packageID $packageID installed"
+			
+			InstalledLabelsArray+=( "$label_name" )
+			
+			return
+		fi
+	fi
+
+	if [ -z "$appName" ]; then
+		# when not given derive from name
+		appName="$name.app"
+	fi
+	
+	# get app in /Applications, or /Applications/Utilities, or find using Spotlight
+	notice "Searching system for $appName"
+	
+	if [[ -d "/Applications/$appName" ]]; then
+		applist="/Applications/$appName"
+	elif [[ -d "/Applications/Utilities/$appName" ]]; then
+		applist="/Applications/Utilities/$appName"
+	else
+#        applist=$(mdfind "kind:application $appName" -0 )
+		applist=$(mdfind -literal "kMDItemFSName == '$appName'" -0 )
+	fi
+	
+	appPathArray=( ${(0)applist} )
+
+	if [[ ${#appPathArray} -gt 0 ]]; then
+
+		infoOut "Found $applist"
+		
+		filteredAppPaths=( ${(M)appPathArray:#${targetDir}*} )
+
+		if [[ ${#filteredAppPaths} -eq 1 ]]; then
+			installedAppPath=$filteredAppPaths[1]
+			
+			appversion=$(defaults read $installedAppPath/Contents/Info.plist $versionKey) #Not dependant on Spotlight indexing
+
+			notice "Label: $label_name"
+			notice "--- found app at $installedAppPath"
+						
+			# Is current app from App Store
+			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]]
+			then
+				notice "--- $appName is from App Store. Skipping."
+				return
+			# Check disambiguation
+			else
+				if exists=$(defaults read $configfile $installedAppPath 2> /dev/null)
+				# if [ -n "$exists" ]
+				then 					
+# compare $installedAppPath	with installedAppPath keys in config plist.
+					echo "${appPath} already linked to label ${exists}."
+					if [[ ${#noninteractive} -eq 1 ]]
+					then
+						return
+					else
+						echo -n "Replace label ${exists} with $label_name? [y/N]: "
+						read replaceLabel 
+
+						if [[ $replaceLabel =~ '[Yy]' ]]
+						then
+							echo "Replacing."
+							verifyApp $installedAppPath
+						else
+							echo "Skipping."
+							return
+						fi
+					fi					
+				else 
+					verifyApp $installedAppPath
+				fi
+			fi
+		fi
+	fi
+}
+
+
+
+verifyApp() {
+
+	appPath=$1
+    notice "Verifying: $appPath"
+
+    # verify with spctl
+    appVerify=$(spctl -a -vv "$appPath" 2>&1 )
+    appVerifyStatus=$(echo $?)
+    teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
+
+    if [[ $appVerifyStatus -ne 0 ]] ; then
+        error "Error verifying $appPath"
+        return
+    fi
+
+    if [ "$expectedTeamID" != "$teamID" ]; then
+    	error "Team IDs do not match: $teamID (expected: $expectedTeamID )"
+        return
+    else
+
+# run the commands in current_label to check for the new version string
+		newversion=$(zsh << SCRIPT_EOF
+source "$fragmentsPATH/functions.sh"
+${current_label}
+echo "\$appNewVersion" 
+SCRIPT_EOF
+)
+
+
+		/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${label_name}" "$configfile"
+
+		notice "--- Installed version: ${appversion}"
+		[[ -n "$newversion" ]] && notice "--- Newest version: ${newversion}"
+
+		if [[ "$appversion" == "$newversion" ]]
+		then
+			notice "--- Latest version installed."
+		fi
+		
+	fi
+}
+
 
 # the main attraction.
 # for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
@@ -362,19 +376,17 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 
 	labelFile=$(basename -- "$labelFragment")
 	labelFile="${labelFile%.*}"
-	echo "Processing label $labelFile."
+	infoOut "Processing label $labelFile."
 
 
-	exec 4 < "$labelFragment"
+	exec 3< "${labelFragment}"
 
-	while read -u 4 line; do 
+	while read -r -u 3 line; do 
 
 		# strip spaces and tabs 
 		scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
 
 		if [ -n $scrubbedLine ]; then
-
-		#	echo $in_label        
 
 			if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
 			   label_name=${match[1]}
@@ -405,7 +417,7 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 				case $scrubbedLine in
 
 				  'name='*|'packageID'*|'expectedTeamID'*)
-				  eval "$scrubbedLine"
+					  eval "$scrubbedLine"
 				  ;;
 
 				esac
@@ -413,5 +425,4 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 		fi
 	done
 done
-
 echo "Done."
