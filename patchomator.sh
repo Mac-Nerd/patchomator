@@ -1,14 +1,17 @@
 #!/bin/zsh
 
-# Version: 2022.03.04.NFY
+# Version: 2022.09.22.NFY
 # (Not Finished Yet)
 
 # To Do:
 # differentiate between labels that install the same app (firefox, etc) 
 # without -r, parse generated config, pipe to Installomator to install updates
 
+# Changed:
+# Uses git sparse-checkout to grab and update the labels from 
+# https://github.com/Installomator/Installomator/tree/main/fragments/labels
+
 # Done:
-# read through Installomator script for labels.
 # parse label name, expectedTeamID, packageID
 # match to codesign -dvvv of *.app 
 # packageID to Identifier
@@ -18,12 +21,28 @@
 # default paths
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("/etc/patchomator/config.txt")
+fragmentsPATH=("$(pwd)/Installomator/fragments")
+
+# check for existence of labels. 
+if ! [[ -d $fragmentsPATH ]]
+then
+	notice "Installomator labels not present or out of date. Performing self-update."
+	selfupdate
+fi
 
 
 # Functions
+source "$fragmentsPATH/functions.sh"
 
-source "./functions.sh"
+# Additional Functions: 
 
+selfupdate() {
+# Needs error checking (did git complete without errors, etc)
+	git clone --depth 1 --filter=blob:none --sparse https://github.com/Installomator/Installomator/
+	cd Installomator
+	git sparse-checkout set fragments/labels/
+	git pull
+}
 
 makefile() {
   mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) && touch $1
@@ -43,7 +62,7 @@ usage() {
 	echo "This script must be run with root/sudo privileges."
 	echo "Usage:"
 	echo "patchomator.sh [ -r -v  -c configfile  -i InstallomatorPATH ]"
-	echo "  With no options, this will parse the config file for a list of labels, and execute Installomator to update each label."
+	echo "  With no options, this will parse /etc/patchomator/config.txt for a list of labels, and execute Installomator to update each label."
 	echo "	-r - Refresh config. Scans the system for installed apps and matches them to Installomator labels. Rebuilds the configuration file."
 	echo ""
 	echo "	-c \"path to config file\" - Default configuration file location /etc/patchomator/config.txt"
@@ -76,8 +95,16 @@ notice "path to Installomator.sh: $InstallomatorPATH"
 
 if ! [[ -f $InstallomatorPATH ]]
 then
-	error "[ERROR] Installomator.sh not found at $InstallomatorPATH."
-	exit 1
+	error "Installomator.sh not found at $InstallomatorPATH. Download and install it now?"
+	read DownloadFromGithub
+	
+	if [[ $DownloadFromGithub =~ '[Yy]' ]]; then
+		# this installer requires root/sudo - but since we already know we're root, it should be fine.
+		curl -SsL "https://github.com/Installomator/Installomator/raw/main/MDM/InstallInstallomator.sh" | sh
+	else
+		error "Unable to continue. Exiting now."
+		exit 1	
+	fi
 fi
 
 
@@ -105,10 +132,10 @@ currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print
 
 uid=$(id -u "$currentUser")
         
-notice "CurrentUser: $currentUser"
+notice "Current User: $currentUser"
 notice "UID: $uid"
 userLanguage=$(runAsUser defaults read .GlobalPreferences AppleLocale)
-notice "userLanguage: $userLanguage"
+notice "User Language: $userLanguage"
 
 
 # start of label pattern
@@ -203,23 +230,26 @@ getAppVersion() {
 verifyApp() {
 
 	appPath=$1
+    notice "Verifying: $appPath"
 
     # verify with spctl
-    notice "Verifying: $appPath"
-    
-    if ! teamID=$(spctl -a -vv "$appPath" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()' ); then
+    appVerify=$(spctl -a -vv "$appPath" 2>&1 )
+    appVerifyStatus=$(echo $?)
+    teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
+
+    if [[ $appVerifyStatus -ne 0 ]] ; then
         error "Error verifying $appPath"
         return
     fi
 
     if [ "$expectedTeamID" != "$teamID" ]; then
-        error "Team IDs do not match"
+    	error "Team IDs do not match: $teamID (expected: $expectedTeamID )"
         return
     else
 
 # run the commands in current_label to check for the new version string
 		newversion=$(zsh << SCRIPT_EOF
-source "./functions.sh"
+source "$fragmentsPATH/functions.sh"
 ${current_label}
 echo "\$appNewVersion" 
 SCRIPT_EOF
@@ -243,59 +273,68 @@ IFS=$'\n'
 in_label=0
 current_label=""
 
-while read -r line; do 
 
-	# xargs strips out whitespace. Handy.
-#	scrubbedLine=$(echo $line | xargs 2> /dev/null)
 
-#	scrubbedLine=${line##*(\s)}
+# the main attraction.
+# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
 
-	scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
+for labelFragment in $fragmentsPATH/labels/*.sh; do 
+	echo "Processing $labelFragment."
 
-	if [ -n $scrubbedLine ]; then
+	while read -r line; do 
 
-	#	echo $in_label        
+		# strip spaces and tabs 
+		scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
 
-		if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
-		   label_name=${match[1]}
-		   in_label=1
-		   disambiguation=true
-		   continue # skips to the next iteration
-		fi
+		if [ -n $scrubbedLine ]; then
+
+		#	echo $in_label        
+
+			if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
+			   label_name=${match[1]}
+			   in_label=1
+			   disambiguation=true
+			   continue # skips to the next iteration
+			fi
 	
-		if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
-			# label complete. A valid label includes a Team ID. If we have one, we can check for installed
-			[[ -n $expectedTeamID ]] && getAppVersion
+			if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
+				# label complete. A valid label includes a Team ID. If we have one, we can check for installed
+				[[ -n $expectedTeamID ]] && getAppVersion
 
-			in_label=0
-			packageID=""
-			name=""
-			appName=""
-			expectedTeamID=""
-			current_label=""
-			appNewVersion=""
+				in_label=0
+				packageID=""
+				name=""
+				appName=""
+				expectedTeamID=""
+				current_label=""
+				appNewVersion=""
 	
-			continue # skips to the next iteration
-		fi
+				continue # skips to the next iteration
+			fi
 	
-		if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
-	# add the label lines to create a "subscript" to check versions and whatnot
-	# if empty, add the first line. Otherwise, you'll get a null line
-			[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
+			if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
+		# add the label lines to create a "subscript" to check versions and whatnot
+		# if empty, add the first line. Otherwise, you'll get a null line
+				[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
 
-			case $scrubbedLine in
+				case $scrubbedLine in
 
-			  'name='*|'packageID'*|'expectedTeamID'*|*'disambiguation'*)
-			  eval "$scrubbedLine"
-			  ;;
+				  'name='*|'packageID'*|'expectedTeamID'*|*'disambiguation'*)
+				  eval "$scrubbedLine"
+				  ;;
 
-			esac
+				esac
  
-		fi
+			fi
 		
-	fi
-    
-done <${InstallomatorPATH}
+		fi
+	
+	done <${labelFragment}
+	
+done
+
+
+
 
 echo "Done."
 printf "%s\n" "$InstalledLabelsArray[@]"
