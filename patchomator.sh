@@ -5,6 +5,8 @@
 
 # To Do:
 # differentiate between labels that install the same app (firefox, etc) 
+# - offer user selection?
+# - pick the first match, or set a "preferred" flag?
 # without -r, parse generated config, pipe to Installomator to install updates
 
 # Changed:
@@ -19,8 +21,10 @@
 
 
 # default paths
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
-configfile=("/etc/patchomator/config.txt")
+configfile=("/etc/patchomator/patchomator.plist")
 fragmentsPATH=("$(pwd)/Installomator/fragments")
 
 # check for existence of labels. 
@@ -62,101 +66,53 @@ usage() {
 	echo "This script must be run with root/sudo privileges."
 	echo "Usage:"
 	echo "patchomator.sh [ -r -v  -c configfile  -i InstallomatorPATH ]"
-	echo "  With no options, this will parse /etc/patchomator/config.txt for a list of labels, and execute Installomator to update each label."
+	echo "  With no options, this will parse /etc/patchomator/patchomator.plist for a list of labels, and execute Installomator to update each label."
 	echo "	-r - Refresh config. Scans the system for installed apps and matches them to Installomator labels. Rebuilds the configuration file."
 	echo ""
-	echo "	-c \"path to config file\" - Default configuration file location /etc/patchomator/config.txt"
+	echo "  -y - Non-interactive mode. Accepts the first label that matches an existing app. Use with caution."
+	echo "	-c \"path to config file\" - Default configuration file location /etc/patchomator/patchomator.plist"
 	echo "	-i \"path to Installomator.sh\" - Default Installomator Path /usr/local/Installomator/Installomator.sh"
 	echo "	-v - Verbose mode. Logs more information to stdout."
 	echo "	-h | --help - Show this text."
 	exit 0
 }
 
+installInstallomator() {
 
-# Command line options
-zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp v=verbose r=refresh c:=configfile i:=InstallomatorPATH
+	# Get the URL of the latest PKG From the Installomator GitHub repo
+	PKGurl=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
+	# Expected Team ID of the downloaded PKG
+	expectedTeamID="JME5BW3F3R"
 
-notice "Verbose Mode enabled." # and if it's not? This won't echo.
+	tempDirectory=$( mktemp -d )
+	notice "Created working directory '$tempDirectory'"
+	# Download the installer package
+	notice "Downloading Installomator package"
+	curl --location --silent "$PKGurl" -o "$tempDirectory/Installomator.pkg"
 
-if [ ${#showhelp} -gt 0 ] 
-then
-	usage
-fi
+	# Verify the download
+	teamID=$(spctl -a -vv -t install "$tempDirectory/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
+	notice "Team ID for downloaded package: $teamID"
 
-# Check your privilege
-if [ $(whoami) != "root" ]; then
-    echo "This script must be run with root/sudo privileges."
-    exit 1
-fi
-
-InstallomatorPATH=$InstallomatorPATH[-1]
-
-notice "path to Installomator.sh: $InstallomatorPATH"
-
-if ! [[ -f $InstallomatorPATH ]]
-then
-	error "Installomator.sh not found at $InstallomatorPATH. Download and install it now?"
-	read DownloadFromGithub
-	
-	if [[ $DownloadFromGithub =~ '[Yy]' ]]; then
-		# this installer requires root/sudo - but since we already know we're root, it should be fine.
-		curl -SsL "https://github.com/Installomator/Installomator/raw/main/MDM/InstallInstallomator.sh" | sh
+	# Install the package if Team ID validates
+	if [ "$expectedTeamID" = "$teamID" ] || [ "$expectedTeamID" = "" ]; then
+		notice "Package verified. Installing package Installomator.pkg"
+		if ! installer -pkg "$tempDirectory/Installomator.pkg" -target / -verbose
+		then
+			error "Installation failed. See /var/log/installer.log for details."
+			exit 1
+		fi
+			
 	else
-		error "Unable to continue. Exiting now."
-		exit 1	
+		error "Package verification failed before package installation could start. Download link may be invalid. Aborting."
+		exit 1
 	fi
-fi
 
+	# Remove the temporary working directory when done
+	notice "Deleting working directory '$tempDirectory' and its contents"
+	rm -Rf "$tempDirectory"
 
-configfile=$configfile[-1]
-
-notice "Config file: $configfile"
-
-
-if ! [[ -f $configfile ]] 
-then
-	notice "No config file at $configfile[-1]. Creating one now."
-	makefile $configfile
-elif [[ ${#refresh} -eq 1 ]]
-then 
-	echo "Refreshing $configfile"
-	makefile $configfile
-fi
-
-
-
-
-# Variables
-# get current user
-currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
-
-uid=$(id -u "$currentUser")
-        
-notice "Current User: $currentUser"
-notice "UID: $uid"
-userLanguage=$(runAsUser defaults read .GlobalPreferences AppleLocale)
-notice "User Language: $userLanguage"
-
-
-# start of label pattern
-#label_re='^([a-z0-9\_-]*)(\))$'
-# how to acommodate ?
-#firefoxesr|\
-#firefoxesrpkg)
-label_re='^([a-z0-9\_-]*)(\)|\|\\)$'
-
-# lines are stripped of leading whitespace with sed - handy, since some labels are inconsistent tabs/spaces
-# comment
-comment_re='^\#$'
-
-# end of label pattern
-endlabel_re='^;;'
-
-targetDir="/"
-versionKey="CFBundleShortVersionString"
-
-# Array to store what's installed, so we can save it for later
-InstalledLabelsArray=()
+}
 
 getAppVersion() {
 	# pkgs contains a version number, then we don't have to search for an app
@@ -213,17 +169,33 @@ getAppVersion() {
 				notice "--- $appName is from App Store. Skipping."
 				return
 			# Check disambiguation
-			elif ! $disambiguation
-			then
-				echo "$installedAppPath is not '$label_name'"
-				notice "--- Wrong version of $appName installed. Skipping."
-				return
+			else
+				if exists=$(defaults read $configfile $installedAppPath 2> /dev/null)
+				# if [ -n "$exists" ]
+				then 					
+# compare $installedAppPath	with installedAppPath keys in config plist.
+					echo "${appPath} already linked to label ${exists}."
+					if [[ ${#noninteractive} -eq 1 ]]
+					then
+						return
+					else
+						echo "Replace label ${exists} with $label_name? [y/N]"
+						read replaceLabel
+
+						if [[ $replaceLabel =~ '[Yy]' ]]
+						then
+							echo "Replacing."
+							verifyApp $installedAppPath
+						else
+							echo "Skipping."
+							return
+						fi
+					fi					
+				else 
+					verifyApp $installedAppPath
+				fi
 			fi
-
-			verifyApp $installedAppPath
-      
 		fi
-
 	fi
 }
 
@@ -255,7 +227,9 @@ echo "\$appNewVersion"
 SCRIPT_EOF
 )
 
-		InstalledLabelsArray+=( "$label_name" )
+# 		InstalledLabelsArray+=( "$label_name" )
+
+		/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${label_name}" "$configfile"
 
 		notice "--- Installed version: ${appversion}"
 		[[ -n "$newversion" ]] && notice "--- Newest version: ${newversion}"
@@ -269,6 +243,112 @@ SCRIPT_EOF
 }
 
 
+
+
+
+
+
+# Command line options
+zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp y=noninteractive v=verbose r=refresh c:=configfile i:=InstallomatorPATH
+
+notice "Verbose Mode enabled." # and if it's not? This won't echo.
+
+configfile=$configfile[-1]
+
+notice "Config file: $configfile"
+if [[ ${#noninteractive} -eq 1 ]]
+then
+	echo "Running in non-interactive mode. Check ${configfile} to confirm correct labels are applied."
+fi
+
+
+if [ ${#showhelp} -gt 0 ] 
+then
+	usage
+fi
+
+# Check your privilege
+if [ $(whoami) != "root" ]; then
+    echo "This script must be run with root/sudo privileges."
+    exit 1
+fi
+
+InstallomatorPATH=$InstallomatorPATH[-1]
+
+notice "path to Installomator.sh: $InstallomatorPATH"
+
+if ! [[ -f $InstallomatorPATH ]]
+then
+	error "Installomator.sh not found at $InstallomatorPATH. Download and install it now? [y/N]"
+	read DownloadFromGithub
+	
+	if [[ $DownloadFromGithub =~ '[Yy]' ]]; then
+		# this installer requires root/sudo - but since we already know we're root, it should be fine.
+		# https://github.com/Installomator/Installomator/raw/main/MDM/InstallInstallomator.sh
+		
+		installInstallomator
+		
+	else
+		error "Unable to continue. Exiting now."
+		exit 1	
+	fi
+fi
+
+
+
+if ! [[ -f $configfile ]] 
+then
+	echo "No config file at $configfile. Creating one now."
+	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
+elif [[ ${#refresh} -eq 1 ]]
+then 
+	echo "Refreshing $configfile"
+	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
+else
+# read existing config. One label per line. Send labels to Installomator for updates.
+	echo "Existing config at $configfile. To refresh the list, re-run patchomator with -r"
+	echo "Passing labels to Installomator."
+# !!! TBD	
+	
+	exit 0		
+fi
+
+
+
+# Variables
+# get current user
+currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
+
+uid=$(id -u "$currentUser")
+        
+notice "Current User: $currentUser"
+notice "UID: $uid"
+userLanguage=$(runAsUser defaults read .GlobalPreferences AppleLocale)
+notice "User Language: $userLanguage"
+
+
+# start of label pattern
+#label_re='^([a-z0-9\_-]*)(\))$'
+# how to acommodate ?
+#firefoxesr|\
+#firefoxesrpkg)
+label_re='^([a-z0-9\_-]*)(\)|\|\\)$'
+
+# lines are stripped of leading whitespace with sed - handy, since some labels are inconsistent tabs/spaces
+# comment
+comment_re='^\#$'
+
+# end of label pattern
+endlabel_re='^;;'
+
+targetDir="/"
+versionKey="CFBundleShortVersionString"
+
+# Array to store what's installed, so we can save it for later
+InstalledLabelsArray=()
+
+
+
 IFS=$'\n'
 in_label=0
 current_label=""
@@ -279,9 +359,15 @@ current_label=""
 # for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
 
 for labelFragment in $fragmentsPATH/labels/*.sh; do 
-	echo "Processing $labelFragment."
 
-	while read -r line; do 
+	labelFile=$(basename -- "$labelFragment")
+	labelFile="${labelFile%.*}"
+	echo "Processing label $labelFile."
+
+
+	exec 4 < "$labelFragment"
+
+	while read -u 4 line; do 
 
 		# strip spaces and tabs 
 		scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
@@ -293,7 +379,6 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 			if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
 			   label_name=${match[1]}
 			   in_label=1
-			   disambiguation=true
 			   continue # skips to the next iteration
 			fi
 	
@@ -319,22 +404,14 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 
 				case $scrubbedLine in
 
-				  'name='*|'packageID'*|'expectedTeamID'*|*'disambiguation'*)
+				  'name='*|'packageID'*|'expectedTeamID'*)
 				  eval "$scrubbedLine"
 				  ;;
 
 				esac
- 
 			fi
-		
 		fi
-	
-	done <${labelFragment}
-	
+	done
 done
 
-
-
-
 echo "Done."
-printf "%s\n" "$InstalledLabelsArray[@]"
