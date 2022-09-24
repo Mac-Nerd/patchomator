@@ -4,30 +4,32 @@
 # (Not Finished Yet)
 
 # To Do:
-# without -r, parse generated config, pipe to Installomator to install updates
-# on duplicate labels, skip subsequent verification
-# eval error ;; ?
+# system-level config file in case running via sudo?
 
 # Changed:
 # Uses git sparse-checkout to grab and update the labels from 
-# https://github.com/Installomator/Installomator/tree/main/fragments/labels
+#   https://github.com/Installomator/Installomator/tree/main/fragments/labels
+# No longer requires root for normal operation. (thanks, @tlark)
 
 # Done:
-# added quiet mode, noninteractive mode
-# choose between labels that install the same app (firefox, etc) 
-# - offer user selection
-# - pick the first match (noninteractive mode)
 # parse label name, expectedTeamID, packageID
 # match to codesign -dvvv of *.app 
 # packageID to Identifier
 # expectedTeamID to TeamIdentifier
+# added quiet mode, noninteractive mode
+# choose between labels that install the same app (firefox, etc) 
+# - offer user selection
+# - pick the first match (noninteractive mode)
+# on duplicate labels, skip subsequent verification
+# on -I, parse generated config, pipe to Installomator to install updates
+#   Installomator requires root
 
 
 # default paths
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
-configfile=("/etc/patchomator/patchomator.plist")
+configfile=("$HOME/Library/Preferences/Patchomator/patchomator.plist")
 fragmentsPATH=("$(pwd)/Installomator/fragments")
 
 # check for existence of labels. 
@@ -51,8 +53,8 @@ selfupdate() {
 	git pull
 }
 
-makefile() {
-  mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) && touch $1
+makepath() {
+  mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) # && touch $1
 }
 
 error() {
@@ -75,18 +77,22 @@ infoOut() {
 usage() {
 	echo "This script must be run with root/sudo privileges."
 	echo "Usage:"
-	echo "patchomator.sh [ -r -v  -c configfile  -i InstallomatorPATH ]"
-	echo "  With no options, this will parse /etc/patchomator/patchomator.plist for a list of labels, and execute Installomator to update each label."
-	echo "	-r - Refresh config. Scans the system for installed apps and matches them to Installomator labels. Rebuilds the configuration file."
+	echo "patchomator.sh [ -vqyhI  -c configfile  -i InstallomatorPATH ]"
+	echo "With no options, this will create a new, or refresh an existing configuration. Scans the system for installed apps and matches them to Installomator labels."
 	echo ""
+	echo "	-c \"path to config file\" - Default configuration file location ~/Library/Preferences/Patchomator/patchomator.plist"
 	echo "  -y - Non-interactive mode. Accepts the first label that matches an existing app. Use with caution."
-	echo "	-c \"path to config file\" - Default configuration file location /etc/patchomator/patchomator.plist"
-	echo "	-i \"path to Installomator.sh\" - Default Installomator Path /usr/local/Installomator/Installomator.sh"
 	echo "	-q - Quiet mode. Minimal output."
 	echo "	-v - Verbose mode. Logs more information to stdout. Overrides -q"
+	echo "	-i \"path to Installomator.sh\" - Default Installomator Path /usr/local/Installomator/Installomator.sh"
+	echo "  -I - Install mode. This parses an existing configuration and sends the commands to Installomator to update. Requires sudo"
 	echo "	-h | --help - Show this text."
 	exit 0
 }
+
+
+# Command line options
+zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp I=installmode q=quietmode y=noninteractive v=verbose c:=configfile i:=InstallomatorPATH
 
 installInstallomator() {
 
@@ -125,52 +131,60 @@ installInstallomator() {
 
 }
 
+caffexit () {
+	kill "$caffeinatepid"
+	exit $1
+}
+
+doInstallations() {
+
+	# No sleeping
+	/usr/bin/caffeinate -d -i -m -u &
+	caffeinatepid=$!
+
+	# Count errors
+	errorCount=0
+
+	# build array of labels from config file
+	labelsArray=($(defaults read $configfile | grep -o -E '\S+\;'))
 
 
+	for label in $labelsArray; do
+		label=$(echo $label | cut -d ';' -f1) # trim the trailing semicolon
+		echo "Installing ${label}..."
+		${InstallomatorPATH} ${label} BLOCKING_PROCESS_ACTION=tell_user NOTIFY=success
+		if [ $? != 0 ]; then
+			error "Error installing ${label}. Exit code $?"
+			let errorCount++
+		fi
+	done
 
+	echo "Errors: $errorCount"
 
+	caffexit $errorCount
 
-
-
-# Command line options
-zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp q=quietmode y=noninteractive v=verbose r=refresh c:=configfile i:=InstallomatorPATH
-
-notice "Verbose Mode enabled." # and if it's not? This won't echo.
-
-configfile=$configfile[-1]
-
-notice "Config file: $configfile"
-if [[ ${#noninteractive} -eq 1 ]]
-then
-	echo "Running in non-interactive mode. Check ${configfile} to confirm correct labels are applied."
-fi
-
-
-if [ ${#showhelp} -gt 0 ] 
-then
-	usage
-fi
-
-# Check your privilege
-if [ $(whoami) != "root" ]; then
-    error "This script must be run with root/sudo privileges."
-    exit 1
-fi
+}
 
 InstallomatorPATH=$InstallomatorPATH[-1]
 
-notice "path to Installomator.sh: $InstallomatorPATH"
+notice "Path to Installomator.sh: $InstallomatorPATH"
 
 if ! [[ -f $InstallomatorPATH ]]
 then
 	error "Installomator.sh not found at $InstallomatorPATH."
+
+	#Check your privilege
+	if [ $(whoami) != "root" ]
+	then
+		error "Either install it from https://github.com/Installomator/Installomator or re-run Patchomator with sudo"
+		exit 1
+	fi
+
 	echo -n "Download and install it now? [y/N]: "
 	read DownloadFromGithub
 	
 	if [[ $DownloadFromGithub =~ '[Yy]' ]]; then
-		# this installer requires root/sudo - but since we already know we're root, it should be fine.
-		# https://github.com/Installomator/Installomator/raw/main/MDM/InstallInstallomator.sh
-		
+
 		installInstallomator
 		
 	else
@@ -181,22 +195,61 @@ fi
 
 
 
+# install mode. Requires root, check for existing config.
+if [[ ${#installmode} -eq 1 ]]
+then
+
+	#Check your privilege
+	if [ $(whoami) != "root" ]
+	then
+		error "Install mode must be run with root/sudo privileges."
+		exit 1
+	fi
+
+	configfile=$configfile[-1]
+	notice "Config file: $configfile"
+
+	if ! [[ -f $configfile ]] 
+	then
+		infoOut "No config file at $configfile. Re-run Patchomator without -I to create one."
+	else
+	# read existing config. One label per line. Send labels to Installomator for updates.
+		infoOut "Existing config found at $configfile."
+		infoOut "Passing labels to Installomator."
+
+		doInstallations
+	
+		exit 0		
+	fi
+
+fi # end install mode
+
+notice "Verbose Mode enabled." # and if it's not? This won't echo.
+
 if ! [[ -f $configfile ]] 
 then
 	infoOut "No config file at $configfile. Creating one now."
-	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
-elif [[ ${#refresh} -eq 1 ]]
-then 
-	infoOut "Refreshing $configfile"
+	makepath "$configfile"
 	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
 else
-# read existing config. One label per line. Send labels to Installomator for updates.
-	infoOut "Existing config at $configfile. To refresh the list, re-run patchomator with -r"
-	infoOut "Passing labels to Installomator."
-# !!! TBD	
-	
-	exit 0		
+	infoOut "Refreshing $configfile"
+	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
 fi
+
+
+if [[ ${#noninteractive} -eq 1 ]]
+then
+	echo "Running in non-interactive mode. Check ${configfile} when done to confirm the correct labels are applied."
+fi
+
+
+if [[ ${#showhelp} -gt 0 ]]
+then
+	usage
+fi
+
+
+
 
 
 
@@ -212,31 +265,6 @@ userLanguage=$(runAsUser defaults read .GlobalPreferences AppleLocale)
 notice "User Language: $userLanguage"
 
 
-# start of label pattern
-#label_re='^([a-z0-9\_-]*)(\))$'
-# how to acommodate ?
-#firefoxesr|\
-#firefoxesrpkg)
-label_re='^([a-z0-9\_-]*)(\)|\|\\)$'
-
-# lines are stripped of leading whitespace with sed - handy, since some labels are inconsistent tabs/spaces
-# comment
-comment_re='^\#$'
-
-# end of label pattern
-endlabel_re='^;;'
-
-targetDir="/"
-versionKey="CFBundleShortVersionString"
-
-# Array to store what's installed, so we can save it for later
-InstalledLabelsArray=()
-
-
-
-IFS=$'\n'
-in_label=0
-current_label=""
 
 
 getAppVersion() {
@@ -295,7 +323,7 @@ getAppVersion() {
 				return
 			# Check disambiguation
 			else
-				if exists=$(defaults read $configfile $installedAppPath 2> /dev/null)
+				if exists=$(defaults read $configfile "$installedAppPath" 2> /dev/null)
 				# if [ -n "$exists" ]
 				then 					
 # compare $installedAppPath	with installedAppPath keys in config plist.
@@ -310,7 +338,8 @@ getAppVersion() {
 						if [[ $replaceLabel =~ '[Yy]' ]]
 						then
 							echo "Replacing."
-							verifyApp $installedAppPath
+							defaults write $configfile $installedAppPath $label_name
+
 						else
 							echo "Skipping."
 							return
@@ -354,7 +383,6 @@ echo "\$appNewVersion"
 SCRIPT_EOF
 )
 
-
 		/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${label_name}" "$configfile"
 
 		notice "--- Installed version: ${appversion}"
@@ -370,6 +398,23 @@ SCRIPT_EOF
 
 
 # the main attraction.
+
+# start of label pattern
+label_re='^([a-z0-9\_-]*)(\)|\|\\)$'
+
+# comment
+comment_re='^\#$'
+
+# end of label pattern
+endlabel_re='^;;'
+
+targetDir="/"
+versionKey="CFBundleShortVersionString"
+
+IFS=$'\n'
+in_label=0
+current_label=""
+
 # for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
 
 for labelFragment in $fragmentsPATH/labels/*.sh; do 
@@ -377,7 +422,6 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 	labelFile=$(basename -- "$labelFragment")
 	labelFile="${labelFile%.*}"
 	infoOut "Processing label $labelFile."
-
 
 	exec 3< "${labelFragment}"
 
@@ -425,4 +469,5 @@ for labelFragment in $fragmentsPATH/labels/*.sh; do
 		fi
 	done
 done
+
 echo "Done."
