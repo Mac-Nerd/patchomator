@@ -10,6 +10,7 @@
 # Uses git sparse-checkout to grab and update the labels from 
 #   https://github.com/Installomator/Installomator/tree/main/fragments/labels
 # No longer requires root for normal operation. (thanks, @tlark)
+# Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
 
 # Done:
 # parse label name, expectedTeamID, packageID
@@ -25,6 +26,12 @@
 #   Installomator requires root
 
 
+# Environment checks
+
+OSVERSION=$(defaults read /System/Library/CoreServices/SystemVersion ProductVersion | awk '{print $1}')
+OSMAJOR=$(echo "${OSVERSION}" | cut -d . -f1)
+OSMINOR=$(echo "${OSVERSION}" | cut -d . -f2)
+
 # default paths
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
@@ -32,13 +39,88 @@ InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("$HOME/Library/Preferences/Patchomator/patchomator.plist")
 fragmentsPATH=("$(pwd)/Installomator/fragments")
 
+# requires git - easiest way to get that is install the Xcode command line tools.
+
+makepath() {
+  mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) # && touch $1
+}
+
+error() {
+	echo "[ERROR] $1"
+}
+
+notice() {
+    if [[ ${#verbose} -eq 1 ]]; then
+        echo "[NOTICE] $1"
+    fi
+}
+
+infoOut() {
+	if ! [[ ${#quietmode} -eq 1 ]]; then
+		echo "$1"
+	fi
+}
+
+installCommandLineTools() {
+
+	#Check your privilege
+	if [ $(whoami) != "root" ]
+	then
+		error "This function requires root. Either install from developer.apple.com or re-run Patchomator with sudo"
+		exit 1
+	fi
+
+	# creates a temporary file to allow swupdate to list and install the command line tools
+	TMPFILE="/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
+	touch ${TMPFILE}
+
+	echo "Checking availability of Command Line Tools."
+	CLTAVAILABLE=$(/usr/sbin/softwareupdate -l | grep -B 1 -E 'Command Line Tools' | awk -F'*' '/^ *\\*/ {print $2}' | sed -e 's/^ *Label: //' -e 's/^ *//' | sort -V | tail -n1)
+
+	if [[ -n ${CLTAVAILABLE} ]]
+	then
+		echo "Installing ${CLTAVAILABLE}"
+
+		/usr/sbin/softwareupdate -i "${CLTAVAILABLE}"
+
+		rm -f ${TMPFILE}
+
+		/usr/bin/xcode-select --switch /Library/Developer/CommandLineTools
+
+	else 
+		echo "Something went wrong. The Command Line Tools are already installed. Confirm git is working and try again."
+		exit 1
+	fi
+					  
+}
+
+if [[ $OSMAJOR -lt 11 ]] && [[ $OSMINOR -lt 13 ]]
+then
+	error "Patchomator and its prerequisites require MacOS 10.13 or higher."
+	exit 1
+else
+
+	if ! gitBinary=$(which git 2> /dev/null) 
+	then 
+		error "Patchomator requires git, which is provided by the XCode Command Line Tools."
+		echo -n "Download and install them now? [y/N]: "
+		read DownloadCLT
+		if [[ $DownloadCLT =~ '[Yy]' ]]; then
+			installCommandLineTools
+			gitBinary=$(which git 2> /dev/null)
+		else
+			error "Unable to continue. Exiting now."
+			exit 1	
+		fi
+	fi	
+fi
+ 
 # check for existence of labels. 
 if ! [[ -d $fragmentsPATH ]]
 then
 	notice "Installomator labels not present or out of date. Performing self-update."
 	selfupdate
 fi
-
 
 # Functions
 source "$fragmentsPATH/functions.sh"
@@ -47,10 +129,11 @@ source "$fragmentsPATH/functions.sh"
 
 selfupdate() {
 # Needs error checking (did git complete without errors, etc)
-	git clone --depth 1 --filter=blob:none --sparse https://github.com/Installomator/Installomator/
+	notice "Using git at ${gitBinary}"
+	$gitBinary clone --depth 1 --filter=blob:none --sparse https://github.com/Installomator/Installomator/
 	cd Installomator
-	git sparse-checkout set fragments/labels/
-	git pull
+	$gitBinary sparse-checkout set fragments/labels/
+	$gitBinary pull
 }
 
 makepath() {
@@ -75,7 +158,6 @@ infoOut() {
 
 
 usage() {
-	echo "This script must be run with root/sudo privileges."
 	echo "Usage:"
 	echo "patchomator.sh [ -vqyhI  -c configfile  -i InstallomatorPATH ]"
 	echo "With no options, this will create a new, or refresh an existing configuration. Scans the system for installed apps and matches them to Installomator labels."
