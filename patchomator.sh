@@ -1,18 +1,21 @@
 #!/bin/zsh
 
-# Version: 2022.09.23.NFY
+# Version: 2022.09.28.NFY
 # (Not Finished Yet)
 
 # To Do:
 # system-level config file in case running via sudo?
+# force self-update and/or switch branches
 
 # Changed:
 # Uses git sparse-checkout to grab and update the labels from 
-#   https://github.com/Installomator/Installomator/tree/main/fragments/labels
+#   https://github.com/Installomator/Installomator/tree/release/fragments/labels
 # No longer requires root for normal operation. (thanks, @tlark)
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
 
 # Done:
+# use release version of installomator, not dev. (Thanks Adam Codega)
+# selfupdate when labels are older than 7 days
 # parse label name, expectedTeamID, packageID
 # match to codesign -dvvv of *.app 
 # packageID to Identifier
@@ -115,8 +118,13 @@ else
 	fi	
 fi
  
-# check for existence of labels. 
-if ! [[ -d $fragmentsPATH ]]
+# check for existence of labels, and if there, how old they are
+
+labelsAge=$((($(date +%s) - $(stat -t %s -f %m -- "$fragmentsPATH")) / 86400))
+
+infoOut "Labels last updated ${labelsAge} days ago."
+
+if [[ ! -d $fragmentsPATH ]] || [[ $labelsAge -gt 7 ]]
 then
 	notice "Installomator labels not present or out of date. Performing self-update."
 	selfupdate
@@ -130,11 +138,13 @@ source "$fragmentsPATH/functions.sh"
 selfupdate() {
 # Needs error checking (did git complete without errors, etc)
 	notice "Using git at ${gitBinary}"
-	$gitBinary clone --depth 1 --filter=blob:none --sparse https://github.com/Installomator/Installomator/
+	$gitBinary clone --branch "$releaseversion" --depth 1 --filter=blob:none --sparse https://github.com/Installomator/Installomator/tree/release/
 	cd Installomator
 	$gitBinary sparse-checkout set fragments/labels/
 	$gitBinary pull
 }
+
+
 
 makepath() {
   mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) # && touch $1
@@ -159,13 +169,14 @@ infoOut() {
 
 usage() {
 	echo "Usage:"
-	echo "patchomator.sh [ -vqyhI  -c configfile  -i InstallomatorPATH ]"
+	echo "patchomator.sh [ -cyqvxiIh  -c configfile  -i InstallomatorPATH ]"
 	echo "With no options, this will create a new, or refresh an existing configuration. Scans the system for installed apps and matches them to Installomator labels."
 	echo ""
 	echo "	-c \"path to config file\" - Default configuration file location ~/Library/Preferences/Patchomator/patchomator.plist"
 	echo "  -y - Non-interactive mode. Accepts the first label that matches an existing app. Use with caution."
 	echo "	-q - Quiet mode. Minimal output."
 	echo "	-v - Verbose mode. Logs more information to stdout. Overrides -q"
+	echo "  -x - Use the latest development branch of Installomator labels. Otherwise, defaults to latest release branch. Use with caution."
 	echo "	-i \"path to Installomator.sh\" - Default Installomator Path /usr/local/Installomator/Installomator.sh"
 	echo "  -I - Install mode. This parses an existing configuration and sends the commands to Installomator to update. Requires sudo"
 	echo "	-h | --help - Show this text."
@@ -174,10 +185,17 @@ usage() {
 
 
 # Command line options
-zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp I=installmode q=quietmode y=noninteractive v=verbose c:=configfile i:=InstallomatorPATH
+zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp x=devmode I=installmode q=quietmode y=noninteractive v=verbose c:=configfile i:=InstallomatorPATH
+
+if [[ ${#devmode} -eq 1 ]]; then
+	releaseversion="main"
+	notice "Using development branch of Installomator labels from Github. Some things may not work as expected."
+else
+	releaseversion="release"
+fi
+
 
 installInstallomator() {
-
 	# Get the URL of the latest PKG From the Installomator GitHub repo
 	PKGurl=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
 	# Expected Team ID of the downloaded PKG
