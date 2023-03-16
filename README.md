@@ -11,7 +11,6 @@ https://github.com/Installomator/Installomator
 
 Installomator is Copyright 2020 Armin Briegel, Scripting OS X
 
-This script must be run with root/sudo privileges, and requires Installomator already be installed.
 
 Usage:
 `patchomator.sh [ -r -v  -c configfile  -i InstallomatorPATH ]`
