@@ -66,16 +66,16 @@ fragmentsPATH=("$patchomatorPath/fragments")
 
 usage() {
 	echo "Usage:"
-	echo "\tpatchomator.sh [ -cyqviIh  -c configfile  -i InstallomatorPATH ]\n"
+	echo "\tpatchomator.sh [ -yqvIh  -c configfile  -i InstallomatorPATH ]\n"
 	echo "With no options:"
 	echo "\tScans the system for installed apps and matches them to Installomator labels. Creates a new, or refreshes an existing configfile. \n"
-	echo "\t-c \"path to config file\" \t Default configuration file location ~/Library/Preferences/Patchomator/patchomator.plist"
 	echo "\t-y\t Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t-q\t Quiet mode. Minimal output."
 	echo "\t-v\t Verbose mode. Logs more information to stdout. Overrides -q"
 #	echo "\t-x\t Use the latest development branch of Installomator labels. Otherwise, defaults to latest release branch. Use with caution."
-	echo "\t-i \"path to Installomator.sh\" \t Default Installomator Path /usr/local/Installomator/Installomator.sh"
 	echo "\t-I\t Install mode. This parses an existing configuration and sends the commands to Installomator to update. Requires sudo"
+	echo "\t-i \"path to Installomator.sh\" \t Default Installomator Path /usr/local/Installomator/Installomator.sh"
+	echo "\t-c \"path to config file\" \t Default configuration file location ~/Library/Preferences/Patchomator/patchomator.plist"
 	echo "\t-h | --help \t Show this text and exit."
 	exit 0
 }
