@@ -61,22 +61,27 @@ configfile=("$HOME/Library/Preferences/Patchomator/patchomator.plist")
 patchomatorPath=$(dirname $0)
 fragmentsPATH=("$patchomatorPath/fragments")
 
+# Pretty print
+BOLD=$(tput bold)
+RESET=$(tput sgr0)
+RED=$(tput setaf 1)
+YELLOW=$(tput setaf 3)
 
 # functions
 
 usage() {
-	echo "Usage:"
+	echo "\n${BOLD}Usage:${RESET}"
 	echo "\tpatchomator.sh [ -yqvIh  -c configfile  -i InstallomatorPATH ]\n"
-	echo "With no options:"
+	echo "${BOLD}With no options:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels. Creates a new, or refreshes an existing configfile. \n"
-	echo "\t-y\t Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
-	echo "\t-q\t Quiet mode. Minimal output."
-	echo "\t-v\t Verbose mode. Logs more information to stdout. Overrides -q"
+	echo "\t${BOLD}-y\t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
+	echo "\t${BOLD}-q\t${RESET} Quiet mode. Minimal output."
+	echo "\t${BOLD}-v\t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}-q${RESET}"
 #	echo "\t-x\t Use the latest development branch of Installomator labels. Otherwise, defaults to latest release branch. Use with caution."
-	echo "\t-I\t Install mode. This parses an existing configuration and sends the commands to Installomator to update. Requires sudo"
-	echo "\t-i \"path to Installomator.sh\" \t Default Installomator Path /usr/local/Installomator/Installomator.sh"
-	echo "\t-c \"path to config file\" \t Default configuration file location ~/Library/Preferences/Patchomator/patchomator.plist"
-	echo "\t-h | --help \t Show this text and exit."
+	echo "\t${BOLD}-I\t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
+	echo "\t${BOLD}-i \"path to Installomator.sh\" \t${RESET} Default Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
+	echo "\t${BOLD}-c \"path to config file\" \t${RESET} Default configuration file location ${YELLOW}~/Library/Preferences/Patchomator/patchomator.plist${RESET}"
+	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	exit 0
 }
 
@@ -86,16 +91,16 @@ makepath() {
 }
 
 error() {
-	echo "[ERROR] $1"
+	echo "${BOLD}[ERROR]${RESET} $1"
 }
 
 fatal() {
-	echo "[FATAL ERROR] $1"
+	echo "${BOLD}${RED}[ERROR]${RESET}[FATAL ERROR] $1"
 	exit 1
 }
 notice() {
     if [[ ${#verbose} -eq 1 ]]; then
-        echo "[NOTICE] $1"
+        echo "${YELLOW}[NOTICE]${RESET} $1"
     fi
 }
 
@@ -242,7 +247,7 @@ notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
 if [[ ${#noninteractive} -eq 1 ]]
 then
-	echo "[ ! ] Running in non-interactive mode. Check ${configfile} when finished to confirm the correct labels are applied."
+	echo "${BOLD}[ ${YELLOW}!!!${RESET}${BOLD} ] Running in non-interactive mode. Check ${configfile} when finished to confirm the correct labels are applied.${RESET}\n"
 fi
 
 
@@ -290,30 +295,30 @@ then
 	#Check your privilege
 	if $IAMROOT
 	then
-		echo -n "Download and install it now? [y/N]: "
+		echo -n "${BOLD}Download and install it now? ${YELLOW}[y/N]${RESET} "
 		[[ ${#noninteractive} -eq 1 ]] || read DownloadFromGithub
 	
 		if [[ $DownloadFromGithub =~ '[Yy]' ]]
 		then
 			installInstallomator
 		else
-			echo "Continuing without Installomator."
+			echo "${BOLD}Continuing without Installomator.${RESET}"
 			NoInstall=true
 		fi
 	else
-		echo "Specify a path with \"-i [path to Installomator]\" or download and install it from here:\
-		\n\t https://github.com/Installomator/Installomator\
+		echo "Specify a path with \"${YELLOW}-i [path to Installomator]${RESET}\" or download and install it from here:\
+		\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
 		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator as root with\
-		\n\t sudo zsh patchomator.sh"	
+		\n\t ${YELLOW}sudo zsh patchomator.sh${RESET}"	
 		
-		echo -n "Continue without installing Installomator? [Y/n]: "
+		echo -n "${BOLD}Continue without installing Installomator? ${YELLOW}[Y/n] ${RESET}"
 		[[ ${#noninteractive} -eq 1 ]] || read ContinueWithout
 	
 		if [[ $ContinueWithout =~ '[Nn]' ]]; then
 			echo "Okay."
 			exit 0
 		else
-			echo "Continuing without Installomator."
+			echo "${BOLD}Continuing without Installomator.${RESET}"
 			NoInstall=true
 		fi
 	
@@ -493,16 +498,16 @@ getAppVersion() {
 					then
 						return
 					else
-						echo -n "Replace label ${exists} with $label_name? [y/N]: "
+						echo -n "${BOLD}Replace label ${exists} with $label_name? ${YELLOW}[y/N]${RESET} "
 						read replaceLabel 
 
 						if [[ $replaceLabel =~ '[Yy]' ]]
 						then
-							echo "\tReplacing."
+							echo "\t${BOLD}Replacing.${RESET}"
 							defaults write $configfile $installedAppPath $label_name
 
 						else
-							echo "\tSkipping."
+							echo "\t${BOLD}Skipping.${RESET}"
 							return
 						fi
 					fi					
@@ -635,4 +640,4 @@ for labelFragment in "$fragmentsPATH"/labels/*.sh; do
 	done
 done
 
-echo "Done."
+echo "${BOLD}Done.${RESET}\n"
