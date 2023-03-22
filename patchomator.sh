@@ -1,13 +1,22 @@
 #!/bin/zsh
 
-# Version: 2023.03.15.ND
+# Version: 2023.03.22.ND
 # (Nearly Done)
 
+# Big Thanks to:
+# 	Adam Codega
+# 	@tlark
+# 	@mickl089
+# 	Shad Hass
+# 	Derek McKenzie
+# 	Armin Briegel
+
+
 # To Do:
-# system-level config file in case running via sudo?
 # self-update switch branches from release to latest source
 
 # Changed:
+# system-level config file for running via sudo, or deploying via MDM
 # git and Xcode tools are optional now. Did you know GitHub has a pretty decent API?
 # No longer requires root for normal operation. (thanks, @tlark)
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
@@ -57,8 +66,8 @@ declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
-configfile=("$HOME/Library/Preferences/Patchomator/patchomator.plist")
-patchomatorPath=$(dirname $0)
+configfile=("/Library/Application Support/Patchomator/patchomator.plist")
+patchomatorPath=$(dirname $0) # default install at /usr/local/Installomator/
 fragmentsPATH=("$patchomatorPath/fragments")
 
 # Pretty print
