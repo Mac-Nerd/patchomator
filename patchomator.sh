@@ -71,16 +71,17 @@ YELLOW=$(tput setaf 3)
 
 usage() {
 	echo "\n${BOLD}Usage:${RESET}"
-	echo "\tpatchomator.sh [ -yqvIh  -c configfile  -i InstallomatorPATH ]\n"
-	echo "${BOLD}With no options:${RESET}"
+	echo "\tpatchomator.sh [ -ryqvIh  -c configfile  -i InstallomatorPATH ]\n"
+	echo "${BOLD}Default:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels. Creates a new, or refreshes an existing configfile. \n"
+	echo "\t${BOLD}-r\t${RESET} Read Config. Parses and displays an existing config file. Default path ${YELLOW}~/Library/Preferences/Patchomator/patchomator.plist${RESET}"
+	echo "\t${BOLD}-c \"path to config file\" \t${RESET} Overrides default configuration file location."
 	echo "\t${BOLD}-y\t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q\t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v\t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}-q${RESET}"
 #	echo "\t-x\t Use the latest development branch of Installomator labels. Otherwise, defaults to latest release branch. Use with caution."
 	echo "\t${BOLD}-I\t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
 	echo "\t${BOLD}-i \"path to Installomator.sh\" \t${RESET} Default Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
-	echo "\t${BOLD}-c \"path to config file\" \t${RESET} Default configuration file location ${YELLOW}~/Library/Preferences/Patchomator/patchomator.plist${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	exit 0
 }
@@ -240,9 +241,21 @@ doInstallations() {
 
 
 # Command line options
-zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp x=devmode I=installmode q=quietmode y=noninteractive v=verbose c:=configfile i:=InstallomatorPATH
+zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp x=devmode I=installmode q=quietmode y=noninteractive v=verbose r=readconfig c:=configfile i:=InstallomatorPATH
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
+
+if [[ ${#readconfig} -eq 1 ]]
+then
+	echo "\n${BOLD}Currently configured labels:${RESET}"
+	
+	column -t -s "=;\"\"" <<< $(defaults read "$configfile" | tr -d "{}")
+	
+	echo "\n"
+	exit 0
+fi
+	
+
 
 
 if [[ ${#noninteractive} -eq 1 ]]
@@ -402,8 +415,16 @@ then
 	makepath "$configfile"
 	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
 else
-	infoOut "Refreshing $configfile"
-	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
+	echo -n "${BOLD}Config exists. Refresh it now? ${YELLOW}[Y/n]${RESET} "
+	read refreshConfig 
+
+	if [[ $refreshConfig =~ '[Nn]' ]]
+	then
+		echo "\t${BOLD}Continuing with $configfile${RESET}"
+	else
+		echo "\t${BOLD}Refreshing $configfile ${RESET}"
+		/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
+	fi
 fi
 
 
