@@ -97,7 +97,8 @@ usage() {
 
 
 makepath() {
-  mkdir -p $(sed 's/\(.*\)\/.*/\1/' <<< $1) # && touch $1
+	
+	mkdir -p "$(sed 's/\(.*\)\/.*/\1/' <<< $1)" # && touch $1
 }
 
 error() {
@@ -105,7 +106,7 @@ error() {
 }
 
 fatal() {
-	echo "${BOLD}${RED}[ERROR]${RESET}[FATAL ERROR] $1"
+	echo "${BOLD}${RED}[FATAL ERROR]${RESET} $1"
 	exit 1
 }
 notice() {
@@ -266,6 +267,11 @@ doInstallations() {
 # Command line options
 zparseopts -D -E -F -K -- h+=showhelp -help+=showhelp x=devmode I=installmode q=quietmode y=noninteractive v=verbose r=readconfig c:=configfile i:=InstallomatorPATH
 
+
+configfile=$configfile[-1] # either provided on the command line, or default
+InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/bin
+
+
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
 if [[ ${#readconfig} -eq 1 ]]
@@ -274,13 +280,6 @@ then
 	exit 0
 fi
 	
-
-
-
-if [[ ${#noninteractive} -eq 1 ]]
-then
-	echo "${BOLD}[ ${YELLOW}!!!${RESET}${BOLD} ] Running in non-interactive mode. Check ${configfile} when finished to confirm the correct labels are applied.${RESET}\n"
-fi
 
 
 
@@ -315,8 +314,16 @@ fi
 
 
 
+
+if [[ ${#noninteractive} -eq 1 ]]
+then
+	echo "\n${BOLD}[ ${YELLOW}!!!${RESET}${BOLD} ] Running in non-interactive mode. Check ${configfile} when finished to confirm the correct labels are applied.${RESET}\n"
+fi
+
+
+
+
 # check for existence of Installomator to enable installation of updates
-InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/bin
 notice "Path to Installomator.sh: $InstallomatorPATH"
 
 if ! [[ -f $InstallomatorPATH ]]
@@ -363,16 +370,28 @@ notice "Path to package labels: ${fragmentsPATH}/labels/"
 # use curl to get the labels - maybe we don't need git?
 if [[ ! -d "$fragmentsPATH/labels/" ]]
 then
-	error "Package labels not present at $fragmentsPATH. Attempting to download from https://github.com/installomator/"
-	downloadLatestLabels
+	if $IAMROOT
+	then
+
+		error "Package labels not present at $fragmentsPATH. Attempting to download from https://github.com/installomator/"
+		downloadLatestLabels
+	else 
+		fatal "Package labels not present at $fragmentsPATH. Re-run patchomator with sudo to download and install them."
+	fi
 	
 else
 	labelsAge=$((($(date +%s) - $(stat -t %s -f %m -- "$fragmentsPATH/labels")) / 86400))
 
-	if [[ $labelsAge -gt 7 ]]
+	if [[ $labelsAge -gt 30 ]]
 	then
-		error "Package labels are out of date. Last updated ${labelsAge} days ago. Attempting to download from https://github.com/installomator/"
-		downloadLatestLabels
+		if $IAMROOT
+		then
+			error "Package labels are out of date. Last updated ${labelsAge} days ago. Attempting to download from https://github.com/installomator/"
+			downloadLatestLabels
+		else
+			error "Package labels are out of date. Last updated ${labelsAge} days ago. Re-run patchomator with sudo to update them, or download from\n\t${YELLOW} https://github.com/installomator/${RESET}"
+		fi
+		
 	else 
 		infoOut "Package labels installed. Last updated ${labelsAge} days ago."
 	fi
@@ -405,12 +424,12 @@ then
 		\t sudo zsh patchomator.sh -I"
 	fi
 
-	configfile=$configfile[-1]
-	notice "Config file: $configfile"
+	notice "Attempting to use configuration path \n\t${YELLOW} $configfile ${RESET}"
+
 
 	if ! [[ -f $configfile ]] 
 	then
-		infoOut "No config file at $configfile. Re-run Patchomator without -I to create one."
+		infoOut "No config file at $configfile. Re-run Patchomator without {YELLOW}-I${RESET} to create one."
 	else
 	# read existing config. One label per line. Send labels to Installomator for updates.
 		infoOut "Existing config found at $configfile."
@@ -421,30 +440,46 @@ then
 		exit 0		
 	fi
 
+
+
 fi # end install mode
 
 
 
-
-
+if [[ -d $configfile ]]
+then
+	fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator -c \"/etc/patchomator.plist\""
+fi
 
 if ! [[ -f $configfile ]] 
 then
-	infoOut "No config file at $configfile. Creating one now."
-	makepath "$configfile"
-	/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
-else
-	echo -n "${BOLD}Config exists. Refresh it now? ${YELLOW}[Y/n]${RESET} "
-	read refreshConfig 
-
-	if [[ $refreshConfig =~ '[Nn]' ]]
+	if [[ -w $(dirname $configfile) || "$IAMROOT" ]]
 	then
-		echo "\t${BOLD}Nothing to do.${RESET}\n"
-		exit 0
-	else
-		echo "\t${BOLD}Refreshing $configfile ${RESET}"
+		infoOut "No config file at $configfile. Creating one now."
+		makepath "$configfile"
 		/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
+	else
+		fatal "$(dirname $configfile) is not writable. Re-run patchomator with sudo to create the config file there, or choose a writable path with\n\t ${YELLOW}patchomator -c [path to config file]${RESET}"
 	fi
+else
+
+	if [[ -w $configfile ]]
+	then 
+		echo -n "${BOLD}Config exists. Refresh it now? ${YELLOW}[Y/n]${RESET} "
+		read refreshConfig 
+
+		if [[ $refreshConfig =~ '[Nn]' ]]
+		then
+			echo "\t${BOLD}Nothing to do.${RESET}\n"
+			exit 0
+		else
+			echo "\t${BOLD}Refreshing $configfile ${RESET}"
+			/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
+		fi
+	else
+		fatal "$configfile is not writable. Re-run patchomator with sudo, or choose a writable config file with\n\t ${YELLOW}patchomator -c [path to config file]${RESET}"
+	fi
+	
 fi
 
 
