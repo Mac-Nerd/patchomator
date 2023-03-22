@@ -111,6 +111,20 @@ infoOut() {
 	fi
 }
 
+
+displayConfig() {
+
+	if ! [[ -f $configfile ]] 
+	then
+		error "No config file at $configfile. Run patchomator again without ${YELLOW}-r${RESET} to create one now.\n"
+	else
+		echo "\n${BOLD}Currently configured labels:${RESET}"	
+		column -t -s "=;\"\"" <<< $(defaults read "$configfile" | tr -d "{}")
+	fi
+}
+
+
+
 # installCommandLineTools() {
 # 
 # 	#Check your privilege
@@ -247,11 +261,7 @@ notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
 if [[ ${#readconfig} -eq 1 ]]
 then
-	echo "\n${BOLD}Currently configured labels:${RESET}"
-	
-	column -t -s "=;\"\"" <<< $(defaults read "$configfile" | tr -d "{}")
-	
-	echo "\n"
+	displayConfig
 	exit 0
 fi
 	
@@ -420,7 +430,8 @@ else
 
 	if [[ $refreshConfig =~ '[Nn]' ]]
 	then
-		echo "\t${BOLD}Continuing with $configfile${RESET}"
+		echo "\t${BOLD}Nothing to do.${RESET}\n"
+		exit 0
 	else
 		echo "\t${BOLD}Refreshing $configfile ${RESET}"
 		/usr/libexec/PlistBuddy -c "clear dict" "$configfile"
@@ -539,8 +550,6 @@ getAppVersion() {
 		fi
 	fi
 }
-
-
 
 verifyApp() {
 
@@ -662,3 +671,9 @@ for labelFragment in "$fragmentsPATH"/labels/*.sh; do
 done
 
 echo "${BOLD}Done.${RESET}\n"
+
+if [[ ${#installmode} -eq 0 || "$NoInstall" ]]
+then
+	displayConfig
+fi
+
