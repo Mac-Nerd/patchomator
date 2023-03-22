@@ -83,7 +83,7 @@ usage() {
 	echo "\tpatchomator.sh [ -ryqvIh  -c configfile  -i InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels. Creates a new, or refreshes an existing configfile. \n"
-	echo "\t${BOLD}-r\t${RESET} Read Config. Parses and displays an existing config file. Default path ${YELLOW}~/Library/Preferences/Patchomator/patchomator.plist${RESET}"
+	echo "\t${BOLD}-r\t${RESET} Read Config. Parses and displays an existing config file. Default path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
 	echo "\t${BOLD}-c \"path to config file\" \t${RESET} Overrides default configuration file location."
 	echo "\t${BOLD}-y\t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q\t${RESET} Quiet mode. Minimal output."
