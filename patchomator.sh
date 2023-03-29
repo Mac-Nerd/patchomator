@@ -59,7 +59,16 @@ fi
 
 
 # log levels from Installomator/fragments/arguments.sh
+
+if [[ $DEBUG -ne 0 ]]; then
+    LOGGING=DEBUG
+elif [[ -z $LOGGING ]]; then
+    LOGGING=INFO
+    datadogLoggingLevel=INFO
+fi
+
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
+
 
 
 # default paths
@@ -545,8 +554,6 @@ getAppVersion() {
 	appPathArray=( ${(0)applist} )
 
 	if [[ ${#appPathArray} -gt 0 ]]; then
-
-		infoOut "Found $applist"
 		
 		filteredAppPaths=( ${(M)appPathArray:#${targetDir}*} )
 
@@ -554,6 +561,8 @@ getAppVersion() {
 			installedAppPath=$filteredAppPaths[1]
 			
 			appversion=$(defaults read $installedAppPath/Contents/Info.plist $versionKey) #Not dependant on Spotlight indexing
+
+			infoOut "Found $appName version $appversion"
 
 			notice "Label: $label_name"
 			notice "--- found app at $installedAppPath"
@@ -592,7 +601,10 @@ getAppVersion() {
 				fi
 			fi
 		fi
+
 	fi
+
+
 }
 
 verifyApp() {
@@ -618,6 +630,7 @@ verifyApp() {
 
 # run the commands in current_label to check for the new version string
 		newversion=$(zsh << SCRIPT_EOF
+declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 source "$fragmentsPATH/functions.sh"
 ${current_label}
 echo "\$appNewVersion" 
