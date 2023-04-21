@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.04.20.MOO
-# (Major Overhaul Operation)
+# Version: 2023.04.21.RC
+# (Release Candidate -or- Really Close)
 
 # Big Thanks to:
 # 	Adam Codega
@@ -10,10 +10,12 @@
 # 	Shad Hass
 # 	Derek McKenzie
 # 	Armin Briegel
+#	Jordy Thery
 
 # To Do:
 # Add MDM deployed Non-interactive Mode
 # Install package
+# add back installomator install steps
 
 # Changed:
 # Major overhaul based on MacAdmins #patchomator feedback
@@ -94,7 +96,7 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("/Library/Application Support/Patchomator/patchomator.plist")
-patchomatorPath=$(dirname $0) # default install at /usr/local/Installomator/
+patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
 fragmentsPATH=("$patchomatorPath/fragments")
 
 # Pretty print
@@ -112,15 +114,17 @@ usage() {
 	echo "\n${BOLD}Usage:${RESET}"
 	echo "\tpatchomator.sh [ -ryqvIh  -c configfile  -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
-	echo "\tScans the system for installed apps and matches them to Installomator labels. Creates a new config file or refreshes an existing one. \n"
-	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. Default path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
+	echo "\tScans the system for installed apps and matches them to Installomator labels."
+	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
+	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location."
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}-q${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
-	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\" \t${RESET} Default Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
+	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
+	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
 	exit 0
 }
 
@@ -188,21 +192,104 @@ displayConfig() {
 checkInstallomator() {
 	
 	# check for existence of Installomator to enable installation of updates
-	notice "Checking Installomator is installed at ${YELLOW}$InstallomatorPATH ${RESET}"
+	notice "Checking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
 	if ! [[ -f $InstallomatorPATH ]]
 	then
+		error "Installomator was not found at ${YELLOW}$InstallomatorPATH ${RESET}"
+	
 		LatestInstallomator=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
 
-		fatal "No Installomator.sh at $InstallomatorPATH. Did you mean to specify a different path?\n\nPatchomator will function normally without it, but will not be able to install updates.\n\nDownload it here:\n\t${YELLOW}$LatestInstallomator${RESET}"
+		OfferToInstall
+		
 	else
 		if [ $($InstallomatorPATH version | cut -d . -f 1) -lt 10 ]
 		then
-			fatal "Installomator is installed, but is out of date. Version 10 or higher is required for Patchomator to function. You can probably update it with \n\t${YELLOW}sudo Installomator.sh installomator ${RESET}"
+			fatal "Installomator is installed, but is out of date. Versions prior to 10.0 function unpredictably with Patchomator.\nYou can probably update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
 		fi
 	fi	
 
 }
+
+
+
+OfferToInstall() {
+	#Check your privilege
+	if $IAMROOT
+	then
+		echo -n "Patchomator can still discover apps on the system and create a configuration for later use, but will not be able to install or update anything without Installomator. \
+		\n${BOLD}Download and install Installomator now? ${YELLOW}[y/N]${RESET} "
+		[[ ${#noninteractive} -eq 1 ]] || read DownloadFromGithub
+
+		if [[ $DownloadFromGithub =~ '[Yy]' ]]
+		then
+			installInstallomator
+		else
+			echo "${BOLD}Continuing without Installomator.${RESET}"
+			# disable installs
+			installmode=false
+		fi
+	else
+		echo "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
+		\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
+		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with sudo or without ${YELLOW}--install${RESET}"
+
+		exit 0
+	
+# 		echo -n "${BOLD}Continue without installing Installomator? ${YELLOW}[Y/n] ${RESET}"
+# 		[[ ${#noninteractive} -eq 1 ]] || read ContinueWithout
+# 
+# 		if [[ $ContinueWithout =~ '[Nn]' ]]; then
+# 
+# 			infoOut "To install manually, download the PKG from here:\n\t${YELLOW}$LatestInstallomator${RESET}"
+# 
+# 			exit 0
+# 		else
+# 			echo "${BOLD}Continuing without Installomator. Skipping installation/updates.${RESET}"
+# 			installmode = ""
+# 		fi
+
+	fi
+}
+
+installInstallomator() {
+	# Get the URL of the latest PKG From the Installomator GitHub repo
+	# no need for git, if there's an API
+	PKGurl=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
+
+	# Expected Team ID of the downloaded PKG
+	expectedTeamID="JME5BW3F3R"
+
+	tempDirectory=$( mktemp -d )
+	notice "Created working directory '$tempDirectory'"
+
+	# Download the installer package
+	notice "Downloading Installomator package"
+	curl --location --silent "$PKGurl" -o "$tempDirectory/Installomator.pkg" || fatal "Download failed."
+
+	# Verify the download
+	teamID=$(spctl -a -vv -t install "$tempDirectory/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
+	notice "Team ID of downloaded package: $teamID"
+
+	# Install the package, only if Team ID validates
+	if [ "$expectedTeamID" = "$teamID" ]
+	then
+		notice "Package verified. Installing package Installomator.pkg"
+		installer -pkg "$tempDirectory/Installomator.pkg" -target / -verbose || fatal "Installation failed. See /var/log/installer.log for details."			
+	else
+		fatal "Package verification failed. TeamID does not match."
+	fi
+
+	# Remove the temporary working directory when done
+	notice "Deleting working directory '$tempDirectory' and its contents"
+	rm -Rf "$tempDirectory"
+
+}
+
+
+
+
+
 
 
 checkLabels() {
@@ -275,18 +362,8 @@ doInstallations() {
 	# Count errors
 	errorCount=0
 
-	# build array of labels from config file
-#	labelsArray=($(defaults read $configfile | grep -o -E '\S+\;'))
-	IFS=' '
-
-	queuedLabelsArray=("${(@s/ /)labelsArray}")	
-
-
 	for label in $queuedLabelsArray
 	do
-		echo "$label"
-		
-#		label=$(echo $label | cut -d ';' -f1) # trim the trailing semicolon
 		echo "Installing ${label}..."
 		${InstallomatorPATH} ${label} BLOCKING_PROCESS_ACTION=tell_user NOTIFY=success
 		if [ $? != 0 ]; then
@@ -460,11 +537,17 @@ SCRIPT_EOF
 
 
 queueLabel() {
+
+	notice "Queueing $label_name"
+
 	# add to queue if in install mode
-	if [[ ${#installmode} -eq 1 ]]
+	if [[ $installmode ]]
 	then
 		labelsArray+="$label_name "
+		echo "$labelsArray"
 	fi
+	
+	
 }
 
  
@@ -528,7 +611,10 @@ then
 fi
 
 
-
+if [[ ${#installmode} -eq 1 ]]
+then
+	installmode=true
+fi
 
 
 # 
@@ -538,6 +624,20 @@ fi
 # 	echo "\n${BOLD}[ ${YELLOW}!!!${RESET}${BOLD} ] Running in non-interactive mode. Check ${configfile} when finished to confirm the correct labels are applied.${RESET}\n"
 # fi
 # 
+
+if [[ $installmode ]]
+then
+
+	# can't install without the 'mator
+	checkInstallomator	
+
+	# Check your privilege
+	if ! $IAMROOT
+	then
+		fatal "Install mode must be run with root/sudo privileges. Re-run Patchomator with\n\t ${YELLOW}sudo zsh patchomator.sh --install${RESET}"
+	fi
+	
+fi
 
 # discovery mode
 # the main attraction.
@@ -608,7 +708,7 @@ then
 					/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configfile		
 				fi
 
-				if [[ ${#installmode} -eq 1 ]]
+				if [[ $installmode ]]
 				then
 					queueLabel # add to installer queue
 				fi
@@ -642,9 +742,6 @@ then
 	
 		done
 	fi
-
-
-
 
 
 	# can't do discovery without the labels files.
@@ -745,6 +842,11 @@ then
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $configfile."
+	
+	labelsFromConfig=$(defaults read "/Library/Application Support/Patchomator/patchomator.plist" | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]")
+	
+	labelsArray=($(echo $labelsFromConfig))
+	
 fi	
 # end discovery	
 	
@@ -752,24 +854,23 @@ fi
 # install mode. Requires root and Installomator, checks for existing config. 
 # --install
 
-if [[ ${#installmode} -eq 1 ]]
+if [[ $installmode ]]
 then
 
-	# can't install without the 'mator
-	checkInstallomator	
+	IFS=' '
 
-	# Check your privilege
-	if ! $IAMROOT
+	queuedLabelsArray=("${(@s/ /)labelsArray}")	
+
+	if [[ ${#queuedLabelsArray[@]} > 0 ]]
 	then
-		fatal "Install mode must be run with root/sudo privileges. Re-run Patchomator with\n\t ${YELLOW}sudo zsh patchomator.sh --install${RESET}"
+		infoOut "Passing ${#queuedLabelsArray[@]} labels to Installomator."
+		doInstallations
+	else
+		infoOut "All apps up to date. Nothing to do." # inbox zero
 	fi
 	
-	infoOut "Passing labels to Installomator."
-
-	doInstallations
-
 	exit 0
-
+	
 fi
 
 # end install mode
@@ -781,75 +882,4 @@ echo "${BOLD}Done.${RESET}\n"
 
 displayConfig
 
-
-
-
-
-# OfferToInstall() {
-# 		#Check your privilege
-# 		if $IAMROOT
-# 		then
-# 			echo -n "${BOLD}Download and install it now? ${YELLOW}[y/N]${RESET} "
-# 			[[ ${#noninteractive} -eq 1 ]] || read DownloadFromGithub
-# 	
-# 			if [[ $DownloadFromGithub =~ '[Yy]' ]]
-# 			then
-# 				installInstallomator
-# 			else
-# 				echo "${BOLD}Continuing without Installomator.${RESET}"
-# 				NoInstall=true
-# 			fi
-# 		else
-# 			echo "Specify a path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
-# 			\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
-# 			\n\nThis script can also attempt to install Installomator for you. Re-run patchomator as root with\
-# 			\n\t ${YELLOW}sudo zsh patchomator.sh${RESET}"	
-# 		
-# 			echo -n "${BOLD}Continue without installing Installomator? ${YELLOW}[Y/n] ${RESET}"
-# 			[[ ${#noninteractive} -eq 1 ]] || read ContinueWithout
-# 	
-# 			if [[ $ContinueWithout =~ '[Nn]' ]]; then
-# 				echo "Okay."
-# 				exit 0
-# 			else
-# 				echo "${BOLD}Continuing without Installomator.${RESET}"
-# 				NoInstall=true
-# 			fi
-# 	
-# 		fi
-# }
-
-# installInstallomator() {
-# 	# Get the URL of the latest PKG From the Installomator GitHub repo
-# 	PKGurl=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
-# 	# Expected Team ID of the downloaded PKG
-# 	expectedTeamID="JME5BW3F3R"
-# 
-# 	tempDirectory=$( mktemp -d )
-# 	notice "Created working directory '$tempDirectory'"
-# 	# Download the installer package
-# 	notice "Downloading Installomator package"
-# 	curl --location --silent "$PKGurl" -o "$tempDirectory/Installomator.pkg"
-# 
-# 	# Verify the download
-# 	teamID=$(spctl -a -vv -t install "$tempDirectory/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
-# 	notice "Team ID for downloaded package: $teamID"
-# 
-# 	# Install the package if Team ID validates
-# 	if [ "$expectedTeamID" = "$teamID" ] || [ "$expectedTeamID" = "" ]; then
-# 		notice "Package verified. Installing package Installomator.pkg"
-# 		if ! installer -pkg "$tempDirectory/Installomator.pkg" -target / -verbose
-# 		then
-# 			fatal "Installation failed. See /var/log/installer.log for details."
-# 		fi
-# 			
-# 	else
-# 		fatal "Package verification failed before package installation could start. Download link may be invalid. Aborting."
-# 	fi
-# 
-# 	# Remove the temporary working directory when done
-# 	notice "Deleting working directory '$tempDirectory' and its contents"
-# 	rm -Rf "$tempDirectory"
-# 
-# }
-
+#### That's a wrap. Don't forget to tip your server. You don't have to go home, but you can't stay here.
