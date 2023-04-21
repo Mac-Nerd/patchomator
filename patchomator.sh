@@ -206,17 +206,17 @@ checkInstallomator() {
 
 
 checkLabels() {
-	notice "Path to package labels: ${fragmentsPATH}/labels/"
+	notice "Looking for labels in ${fragmentsPATH}/labels/"
 
 	# use curl to get the labels - who needs git?
-	if [[ ! -d "$fragmentsPATH/labels/" ]]
+	if [[ ! -d "$fragmentsPATH" ]]
 	then
-		if [[ -w "$fragmentsPATH" ]]
+		if [[ -w "$patchomatorPath" ]]
 		then
 			infoOut "Package labels not present at $fragmentsPATH. Attempting to download from https://github.com/installomator/"
 			downloadLatestLabels
 		else 
-			fatal "Package labels not present and $fragmentsPATH is not writable . Re-run patchomator with sudo to download and install them."
+			fatal "Package labels not present and $patchomatorPath is not writable. Re-run patchomator with sudo to download and install them."
 		fi
 	
 	else
@@ -224,7 +224,7 @@ checkLabels() {
 
 		if [[ $labelsAge -gt 30 ]]
 		then
-			if [[ -w "${fragmentsPATH}/labels/" ]]
+			if [[ -w "$patchomatorPath" ]]
 			then
 				error "Package labels are out of date. Last updated ${labelsAge} days ago. Attempting to download from https://github.com/installomator/"
 				downloadLatestLabels
