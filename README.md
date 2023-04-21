@@ -30,7 +30,7 @@ mv patchomator.sh /usr/local/Installomator/
 *Dry Run.* Without the `--install` option, Patchomator will run interactively, and search the system for applications that can be upgraded by Installomator. The user will be prompted to yes/no when duplicate or ambiguous app names are found.
 
  `--yes`
-The `--yes` option will accept the default or first choice at each prompt.
+The `--yes` option will accept the default or first choice at each prompt. Frustratingly, this is sometimes "No".
 
 When finished, the script will output its findings but not install anything. The configuration won't be saved unless `--write` is specified.
 
