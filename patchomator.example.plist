@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>/Applications/1Password 7.app</key>
+	<string>1password7</string>
+	<key>/Applications/BBEdit.app</key>
+	<string>bbedit</string>
+	<key>/Applications/Discord.app</key>
+	<string>discord</string>
+	<key>/Applications/Dropbox.app</key>
+	<string>dropbox</string>
+	<key>/Applications/Suspicious Package.app</key>
+	<string>suspiciouspackage</string>
+	<key>/Applications/Utilities/DEPNotify.app</key>
+	<string>depnotify</string>
+	<key>/Applications/VLC.app</key>
+	<string>vlc</string>
+	<key>IgnoredLabels</key>
+	<array>
+		<string>googlechrome</string>
+		<string>firefox</string>
+		<string>zoom</string>
+	</array>
+	<key>RequiredLabels</key>
+	<array>
+		<string>depnotify</string>
+		<string>gotomeeting</string>
+	</array>
+</dict>
+</plist>
