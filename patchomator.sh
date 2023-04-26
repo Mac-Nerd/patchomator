@@ -1,9 +1,9 @@
 #!/bin/zsh
 
-# Version: 2023.04.21.RC
-# (Release Candidate -or- Really Close)
+# Version: 2023.04.26 - 1.0.0
+# (One Point Oh? Oh!)
 
-# Big Thanks to:
+#  Big Thanks to:
 # 	Adam Codega
 # 	@tlark
 # 	@mickl089
@@ -14,8 +14,6 @@
 
 # To Do:
 # Add MDM deployed Non-interactive Mode
-# Install package
-# add back installomator install steps
 
 # Changed:
 # Major overhaul based on MacAdmins #patchomator feedback
@@ -27,6 +25,8 @@
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
 
 # Done:
+# Install package/github release
+# add back installomator install steps
 # use release version of installomator, not dev. (Thanks Adam Codega)
 # selfupdate when labels are older than 7 days
 # parse label name, expectedTeamID, packageID
@@ -85,10 +85,7 @@ elif [[ -z $LOGGING ]]; then
 fi
 
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
-
 declare -A configArray=()
-
-# declare -A labelsArray=()
 
 
 # default paths
@@ -107,8 +104,8 @@ YELLOW=$(tput setaf 3)
 
 
 
-# # # # #
-# functions
+#######################################
+# Functions
 
 usage() {
 	echo "\n${BOLD}Usage:${RESET}"
@@ -120,7 +117,7 @@ usage() {
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location."
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
-	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}-q${RESET}"
+	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
@@ -128,34 +125,39 @@ usage() {
 	exit 0
 }
 
+caffexit () {
+	kill "$caffeinatepid"
+	exit $1
+}
 
-makepath() {
+makepath() { # creates the full path to a file, but not the file itself
 	mkdir -p "$(sed 's/\(.*\)\/.*/\1/' <<< $1)" # && touch $1
 }
 
-notice() {
+notice() { # verbose mode
     if [[ ${#verbose} -eq 1 ]]; then
         echo "${YELLOW}[NOTICE]${RESET} $1"
     fi
 }
 
-infoOut() {
+infoOut() { # normal messages
 	if ! [[ ${#quietmode} -eq 1 ]]; then
 		echo "$1"
 	fi
 }
 
-error() {
+error() { # bad, but recoverable
 	echo "${BOLD}[ERROR]${RESET} $1"
 	let errorCount++
 }
 
-fatal() {
+fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n"
 	exit 1
 }
 
-
+# --read 
+# --write
 displayConfig() {
 	echo "\n${BOLD}Currently configured labels:${RESET}"	
 
@@ -181,7 +183,6 @@ displayConfig() {
 		do
 			echo $requiredItem
 		done
-		
 			
 	fi
 
@@ -212,7 +213,7 @@ checkInstallomator() {
 }
 
 
-
+# --install
 OfferToInstall() {
 	#Check your privilege
 	if $IAMROOT
@@ -235,19 +236,6 @@ OfferToInstall() {
 		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with sudo or without ${YELLOW}--install${RESET}"
 
 		exit 0
-	
-# 		echo -n "${BOLD}Continue without installing Installomator? ${YELLOW}[Y/n] ${RESET}"
-# 		[[ ${#noninteractive} -eq 1 ]] || read ContinueWithout
-# 
-# 		if [[ $ContinueWithout =~ '[Nn]' ]]; then
-# 
-# 			infoOut "To install manually, download the PKG from here:\n\t${YELLOW}$LatestInstallomator${RESET}"
-# 
-# 			exit 0
-# 		else
-# 			echo "${BOLD}Continuing without Installomator. Skipping installation/updates.${RESET}"
-# 			installmode = ""
-# 		fi
 
 	fi
 }
@@ -287,11 +275,6 @@ installInstallomator() {
 }
 
 
-
-
-
-
-
 checkLabels() {
 	notice "Looking for labels in ${fragmentsPATH}/labels/"
 
@@ -327,11 +310,8 @@ checkLabels() {
 
 }
 
-
-
 downloadLatestLabels() {
-# gets the latest release version tarball.
-# to do: get the latest source available (pre-release)
+	# gets the latest release version tarball.
 	latestURL=$(curl -sSL -o - "https://api.github.com/repos/Installomator/Installomator/releases/latest" | grep tarball_url | awk '{gsub(/[",]/,"")}{print $2}') # remove quotes and comma from the returned string
 	#eg "https://api.github.com/repos/Installomator/Installomator/tarball/v10.3"
 
@@ -346,13 +326,7 @@ downloadLatestLabels() {
 	touch "${fragmentsPATH}/labels/"
 }
 
-
-
-caffexit () {
-	kill "$caffeinatepid"
-	exit $1
-}
-
+# --install
 doInstallations() {
 
 	# No sleeping
@@ -380,6 +354,7 @@ doInstallations() {
  
  
 PgetAppVersion() {
+	# renamed to avoid conflicts with Installomator version of the same function name.
 	# pkgs contains a version number, then we don't have to search for an app
 	if [[ $packageID != "" ]]; then
 		
@@ -410,7 +385,7 @@ PgetAppVersion() {
 	else
 #        applist=$(mdfind "kind:application $appName" -0 )
 		applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
-		# random files named *.app was potentially coming up in the list. Now it has to be an actual app bundle
+		# random files named *.app were potentially coming up in the list. Now it has to be an actual app bundle
 	fi
 	
 	appPathArray=( ${(0)applist} )
@@ -532,10 +507,7 @@ SCRIPT_EOF
 
 }
 
-
-
-
-
+# --install
 queueLabel() {
 
 	notice "Queueing $label_name"
@@ -546,12 +518,11 @@ queueLabel() {
 		labelsArray+="$label_name "
 		echo "$labelsArray"
 	fi
-	
-	
+		
 }
 
  
- 
+#######################################
 # You're probably wondering why I've called you all here...
 
 
@@ -590,7 +561,7 @@ fi
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
-configfile=$configfile[-1] # either provided on the command line, or default
+configfile=$configfile[-1] # either provided on the command line, or default path
 InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
 
 # ReadConfig mode - read existing plist and display in pretty columns
@@ -610,20 +581,13 @@ then
 	exit 0
 fi
 
-
+# --install
+# some functions act differently based on install vs discovery/read
 if [[ ${#installmode} -eq 1 ]]
 then
 	installmode=true
 fi
 
-
-# 
-# 
-# if [[ ${#noninteractive} -eq 1 ]]
-# then
-# 	echo "\n${BOLD}[ ${YELLOW}!!!${RESET}${BOLD} ] Running in non-interactive mode. Check ${configfile} when finished to confirm the correct labels are applied.${RESET}\n"
-# fi
-# 
 
 if [[ $installmode ]]
 then
@@ -651,7 +615,6 @@ then
 
 	# Write Config mode
 	# --write
-
 	if [[ ${#writeconfig} -eq 1 ]]
 	then
 		notice "Writing Config"
@@ -688,9 +651,6 @@ then
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
 
 	fi
-
-
-
 
 	# --required
 	if [[ -n "$requiredLabels" ]]
@@ -752,14 +712,13 @@ then
 
 	uid=$(id -u "$currentUser")
 	
-	notice "Current User: $currentUser"
-	notice "UID: $uid"
+	notice "Current User: $currentUser (UID $uid)"
 
 	# start of label pattern
 	label_re='^([a-z0-9\_-]*)(\))$'
 	#label_re='^([a-z0-9\_-]*)(\)|\|\\)$' 
 
-	# comment
+	# ignore comments
 	comment_re='^\#$'
 
 	# end of label pattern
@@ -771,7 +730,6 @@ then
 	IFS=$'\n'
 	in_label=0
 	current_label=""
-
 
 	# MOAR Functions! miscellaneous pieces referenced in the occasional label
 	# Needs to confirm that labels exist first.
@@ -875,10 +833,12 @@ fi
 
 # end install mode
 
-
-
-
-echo "${BOLD}Done.${RESET}\n"
+if [ "$errorCount" -gt 0 ]
+then
+	echo "${BOLD}Completed with $errorCount errors.${RESET}\n"
+else
+	echo "${BOLD}Done.${RESET}\n"
+fi
 
 displayConfig
 

@@ -14,13 +14,14 @@ _Installomator is Copyright 2020 Armin Briegel, Scripting OS X_
 
 ## Installation
 
-*Patchomator install packages suitable for distribution via Jamf or other management platform are coming soon.* 
-For now, download or clone this repo, copy or move patchomator.sh to a path that you have write access to, and set it executable.
+Download the latest PKG installer from the [Releases page](https://github.com/Mac-Nerd/patchomator/releases). 
+
+Or you can download or clone this repo, copy or move `patchomator.sh` to the same location as Installomator, and set it executable.
 
 ```
 curl -LO https://github.com/Mac-Nerd/patchomator/raw/main/patchomator.sh
 chmod a+x patchomator.sh
-mv patchomator.sh /usr/local/Installomator/
+sudo mv patchomator.sh /usr/local/Installomator/
 ```
 
 
@@ -128,14 +129,164 @@ and as a one-time switch on the command line with `--required`
 
 ## Patching with Patchomator
 
+### Run discovery
+
+```
+% sudo /usr/local/Installomator/patchomator.sh
+
+Package labels not present at /usr/local/Installomator/fragments. Attempting to download from https://github.com/installomator/
+Downloading https://api.github.com/repos/Installomator/Installomator/tarball/v10.3 to /usr/local/Installomator/installomator.latest.tar.gz
+Extracting /usr/local/Installomator/installomator.latest.tar.gz into /usr/local/Installomator
+Processing label 1password7.
+Found 1Password 7.app version 7.9.10
+Processing label 1password8.
+Processing label 1passwordcli.
+Processing label 4kvideodownloader.
+Processing label 8x8.
+[...]
+Processing label bbedit.
+Found BBEdit.app version 14.6.5
+Processing label bbeditpkg.
+Found BBEdit.app version 14.6.5
+/Applications/BBEdit.app already linked to label bbedit.
+Replace label bbedit with bbeditpkg? [y/N] y
+	Replacing.
+Processing label betterdisplay.
+Processing label bettertouchtool.
+[...]
+Processing label googlechrome.
+Found Google Chrome.app version 112.0.5615.49
+Processing label googlechromeenterprise.
+Found Google Chrome.app version 112.0.5615.49
+/Applications/Google Chrome.app already linked to label googlechrome.
+Replace label googlechrome with googlechromeenterprise? [y/N] n
+	Skipping.
+Processing label googlechromepkg.
+Found Google Chrome.app version 112.0.5615.49
+/Applications/Google Chrome.app already linked to label googlechrome.
+Replace label googlechrome with googlechromepkg? [y/N] y
+	Replacing.
+[...]
+Completed with 13 errors.
 
 
+Currently configured labels:
+obs
+handbrake
+suspiciouspackage
+dropbox
+apparency
+discord
+blender
+bbeditpkg
+lulu
+depnotify
+thunderbird
+tunnelblick
+gotomeeting
+1password7
+visualstudiocode
+brave
+vlc
+zoom
+utm
+signal
+knockknock
+hancock
+googlechromepkg
+
+Ignored Labels:
+
+Required Labels:
+```
+
+### Write configuration
+
+``` % sudo /usr/local/Installomator/patchomator.sh --write
+
+No config file at /Library/Application Support/Patchomator/patchomator.plist. Creating one now.
+
+File Doesn't Exist, Will Create: /Library/Application Support/Patchomator/patchomator.plist
+Initializing Plist...
+Package labels installed. Last updated 0 days ago.
+Processing label 1password7.
+Found 1Password 7.app version 7.9.10
+Processing label 1password8.
+[...]
+
+Completed with 13 errors.
+
+
+Currently configured labels:
+    /Applications/1Password 7.app              1password7
+    /Applications/Apparency.app                apparency
+    /Applications/BBEdit.app                   bbeditpkg
+    /Applications/Brave Browser.app            brave
+    /Applications/Discord.app                  discord
+    /Applications/Dropbox.app                  dropbox
+    /Applications/GoToMeeting.app              gotomeeting
+    /Applications/Google Chrome.app            googlechromepkg
+    /Applications/Hancock.app                  hancock
+    /Applications/HandBrake.app                handbrake
+    /Applications/KnockKnock.app               knockknock
+    /Applications/LuLu.app                     lulu
+    /Applications/OBS.app                      obs
+    /Applications/Signal.app                   signal
+    /Applications/Suspicious Package.app       suspiciouspackage
+    /Applications/Thunderbird.app              thunderbird
+    /Applications/Tunnelblick.app              tunnelblick
+    /Applications/UTM.app                      utm
+    /Applications/Utilities/DEPNotify.app      depnotify
+    /Applications/VLC.app                      vlc
+    /Applications/Visual Studio Code.app       visualstudiocode
+    /Applications/blender.app                  blender
+    /Applications/zoom.us.app                  zoom
+    IgnoredLabels                                  
+    
+    RequiredLabels                                 
+```    
+
+### Install and update
+
+```
+% sudo /usr/local/Installomator/patchomator.sh --install
+
+[ERROR] Installomator was not found at /usr/local/Installomator/Installomator.sh 
+Patchomator can still discover apps on the system and create a configuration for later use, but will not be able to install or update anything without Installomator. 		
+Download and install Installomator now? [y/N] y
+
+installer: Package name is 
+installer: Upgrading at base path /
+installer: Preparing for installation….....
+installer: Preparing the disk….....
+installer: Preparing ….....
+installer: Waiting for other installations to complete….....
+installer: Configuring the installation….....
+installer: 	
+#
+installer: Validating packages….....
+#
+installer: 	Running installer actions…
+installer: 	
+installer: Finishing the Installation….....
+installer: 	
+#
+installer: The software was successfully installed......
+installer: The upgrade was successful.
+Existing config found at /Library/Application Support/Patchomator/patchomator.plist.
+Passing 25 labels to Installomator.
+Installing 1password7...
+2023-04-26 16:46:41 : INFO  : 1password7 : setting variable from argument BLOCKING_PROCESS_ACTION=tell_user
+2023-04-26 16:46:41 : INFO  : 1password7 : setting variable from argument NOTIFY=success
+2023-04-26 16:46:41 : REQ   : 1password7 : ################## Start Installomator v. 10.3, date 2023-02-10
+2023-04-26 16:46:41 : INFO  : 1password7 : ################## Version: 10.3
+[...]
+2023-04-26 16:46:42 : REQ   : 1password7 : ################## End Installomator, exit code 0 
+
+```
 
 ## Help! It's not working!
 
-Sorry. It's not 100% finished and ready for production yet. If you're willing and able to help test, please report any problems by [opening an issue](https://github.com/Mac-Nerd/patchomator/issues) .
-
-
-## Example Use
+Sorry about that. If you're willing and able to help test, please report any problems by [opening an issue](https://github.com/Mac-Nerd/patchomator/issues). And if you can see where I've messed something up, I'm open to pull requests.
 
 
