@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2023.04.26 - 1.0.0
+# Version: 2023.04.28 - 1.0.1
 # (One Point Oh? Oh!)
 
 #  Big Thanks to:
@@ -16,6 +16,7 @@
 # Add MDM deployed Non-interactive Mode
 
 # Changed:
+# Monterey fix for working path
 # Major overhaul based on MacAdmins #patchomator feedback
 # 7 days -> 30 days
 # Added required/excluded keys in preference file
@@ -93,7 +94,10 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("/Library/Application Support/Patchomator/patchomator.plist")
-patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
+#patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
+# "realpath" doesn't exist on Monterey. 
+if patchomatorPath=$(dirname $(realpath $0)) || patchomatorPath="/usr/local/Installomator/"
+
 fragmentsPATH=("$patchomatorPath/fragments")
 
 # Pretty print
