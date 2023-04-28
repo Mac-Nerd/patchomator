@@ -95,8 +95,9 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("/Library/Application Support/Patchomator/patchomator.plist")
 #patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
+
 # "realpath" doesn't exist on Monterey. 
-if patchomatorPath=$(dirname $(realpath $0)) || patchomatorPath="/usr/local/Installomator/"
+patchomatorPath="/usr/local/Installomator/"
 
 fragmentsPATH=("$patchomatorPath/fragments")
 
