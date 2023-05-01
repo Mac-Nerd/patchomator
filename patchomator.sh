@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2023.04.28 - 1.0.1
+# Version: 2023.05.01 - 1.0.2
 # (One Point Oh? Oh!)
 
 #  Big Thanks to:
@@ -806,7 +806,7 @@ else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $configfile."
 	
-	labelsFromConfig=$(defaults read "/Library/Application Support/Patchomator/patchomator.plist" | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]")
+	labelsFromConfig=$(defaults read "$configfile" | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]")
 	
 	labelsArray=($(echo $labelsFromConfig))
 	
