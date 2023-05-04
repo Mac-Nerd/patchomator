@@ -1,6 +1,6 @@
 #!/bin/zsh
 #
-# This script will check if Installomator and Patchomtor are found locally in their respecitve folders. 
+# This script will check if Installomator and Patchomator are found locally in their respecitve folders. 
 # If found, it will execute Patchomator silently (--yes) to install (--install) updates if found.
 
 # Jamf Pro script parameters 
