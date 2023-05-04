@@ -1,3 +1,5 @@
+![Patchomator icon and text](https://github.com/Mac-Nerd/patchomator/blob/main/images/patchomator-banner.png?raw=true)
+
 # Patchomator
 A management script for Installomator. Work in progress.
 
@@ -100,6 +102,10 @@ defaults read /Library/Preferences/Patchomator/patchomator.plist
 or by running Patchomator.sh with the `-r` or `--read` command line switch.
 
 This will also display two lists of Installomator labels, marked `IgnoredLabels` and `RequiredLabels`. See the next section for details. 
+
+## MDM instructions
+
+More detail coming soon. For now, have a look at [the MDM folder](https://github.com/Mac-Nerd/patchomator/tree/main/MDM) for a starting point.
 
 
 ## Ignored and Required Labels
