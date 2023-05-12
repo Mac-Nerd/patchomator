@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.05.01 - 1.0.2
-# (One Point Oh? Oh!)
+# Version: 2023.05.12 - 1.0.3
+# ("Hey... I think it is actually running now")
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -13,9 +13,12 @@
 #	Jordy Thery
 
 # To Do:
-# Add MDM deployed Non-interactive Mode
+# Add MDM deployed Non-interactive Mode --mdm "MDMName"
+# Add --installomatoroptions to pass options to installomator
+
 
 # Changed:
+# Turn off pretty printed formatting for --mdm and --quiet
 # Monterey fix for working path
 # Major overhaul based on MacAdmins #patchomator feedback
 # 7 days -> 30 days
@@ -101,11 +104,11 @@ patchomatorPath="/usr/local/Installomator/"
 
 fragmentsPATH=("$patchomatorPath/fragments")
 
-# Pretty print
-BOLD=$(tput bold)
-RESET=$(tput sgr0)
-RED=$(tput setaf 1)
-YELLOW=$(tput setaf 3)
+# Pretty print, ignored if no terminal (eg, running via MDM)
+BOLD=$(tput bold 2>/dev/null)
+RESET=$(tput sgr0 2>/dev/null)
+RED=$(tput setaf 1 2>/dev/null)
+YELLOW=$(tput setaf 3 2>/dev/null)
 
 
 
@@ -192,8 +195,6 @@ displayConfig() {
 	fi
 
 }
-
-
 
 checkInstallomator() {
 	
@@ -333,6 +334,10 @@ downloadLatestLabels() {
 
 # --install
 doInstallations() {
+	
+	InstallomatorOptions=$InstallomatorOptions[-1]
+
+	
 
 	# No sleeping
 	/usr/bin/caffeinate -d -i -m -u &
@@ -344,7 +349,7 @@ doInstallations() {
 	for label in $queuedLabelsArray
 	do
 		echo "Installing ${label}..."
-		${InstallomatorPATH} ${label} BLOCKING_PROCESS_ACTION=tell_user NOTIFY=success
+		${InstallomatorPATH} ${label} ${InstallomatorOptions}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
 			let errorCount++
@@ -544,7 +549,9 @@ zparseopts -D -E -F -K -- \
 -config:=configfile c:=configfile \
 -pathtoinstallomator:=InstallomatorPATH p:=InstallomatorPATH \
 -ignored:=ignoredLabels \
--required:=requiredLabels
+-required:=requiredLabels \
+-mdm:=MDMName \
+-options:=InstallomatorOptions
 
 # -h --help
 # -I --install
@@ -555,6 +562,11 @@ zparseopts -D -E -F -K -- \
 # -w --write
 # -c / --config <config file path>
 # -p / --pathtoinstallomator <installomator path>
+# New in 1.1
+# --mdm [one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ] Any other Mac MDM solutions worth mentioning?
+# --options "list of installomator options to pass through"
+
+
 
 
 # Show usage
@@ -568,6 +580,43 @@ notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
 configfile=$configfile[-1] # either provided on the command line, or default path
 InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
+
+MDMName=$MDMName[-1] #[one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ]
+
+# --mdm
+# Assumes certain settings when an MDM is declared:
+# - Installomator options: 
+# 	- logo
+#	- ?
+# --install
+# --quiet
+# --yes
+
+if [ "$MDMName" ]
+then
+	quietmode[1]=true
+	installmode=true
+	noninteractive[1]=true
+fi
+
+
+if [ "$MDMName" ]
+then
+	# set logos for known MDM vendors
+	if [ "$MDMName" != "other" ]
+	then
+		InstallomatorOptions+=" LOGO=$MDMName"
+	fi
+
+	# Options for typical MDM operation
+
+	InstallomatorOptions+=" "
+
+fi
+infoOut "Installomator Options: $InstallomatorOptions"
+
+
+
 
 # ReadConfig mode - read existing plist and display in pretty columns
 # skips discovery and all the rest
@@ -610,6 +659,65 @@ fi
 
 # discovery mode
 # the main attraction.
+
+
+# --required
+if [[ -n "$requiredLabels" ]]
+then
+	
+	requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")	
+	notice "Required labels: $requiredLabelsArray"
+
+	for requiredLabel in $requiredLabelsArray
+	do
+		if [[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]]
+		then
+			notice "[CLI] Requiring ${requiredLabel}."
+
+			if [[ ${#writeconfig} -eq 1 ]]
+			then
+				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configfile		
+			fi
+
+			if [[ $installmode ]]
+			then
+				queueLabel # add to installer queue
+			fi
+		else
+			error "No such label ${requiredLabel}"
+		fi
+		
+	done
+
+fi
+
+# --ignored
+if [[ -n "$ignoredLabels" ]]
+then
+
+	ignoredLabelsArray=("${(@s/ /)ignoredLabels[-1]}")	
+	notice "[CLI] Ignoring labels: $ignoredLabelsArray"
+
+	for ignoredLabel in $ignoredLabelsArray
+	do
+		if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
+		then
+#			notice "Skipping ${ignoredLabel}."
+		
+			if [[ ${#writeconfig} -eq 1 ]]
+			then
+				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
+			fi
+					
+		else
+			error "No such label ${ignoredLabel}"
+		fi
+
+	done
+fi
+
+
+
 
 # if a config exists, use it
 notice "Checking for configuration at ${YELLOW}$configfile ${RESET}"
@@ -656,58 +764,6 @@ then
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
 
 	fi
-
-	# --required
-	if [[ -n "$requiredLabels" ]]
-	then
-		requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")	
-
-		for requiredLabel in $requiredLabelsArray
-		do
-			if [[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]]
-			then
-				notice "Requiring ${requiredLabel}."
-
-				if [[ ${#writeconfig} -eq 1 ]]
-				then
-					/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configfile		
-				fi
-
-				if [[ $installmode ]]
-				then
-					queueLabel # add to installer queue
-				fi
-			else
-				error "No such label ${requiredLabel}"
-			fi
-			
-		done
-	
-	fi
-
-	# --ignored
-	if [[ -n "$ignoredLabels" ]]
-	then
-		ignoredLabelsArray=("${(@s/ /)ignoredLabels[-1]}")	
-
-		for ignoredLabel in $ignoredLabelsArray
-		do
-			if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
-			then
-				notice "Skipping ${ignoredLabel}."
-			
-				if [[ ${#writeconfig} -eq 1 ]]
-				then
-					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
-				fi
-						
-			else
-				error "No such label ${ignoredLabel}"
-			fi
-	
-		done
-	fi
-
 
 	# can't do discovery without the labels files.
 	checkLabels
@@ -806,9 +862,32 @@ else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $configfile."
 	
-	labelsFromConfig=$(defaults read "$configfile" | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]")
+	labelsFromConfig=($(defaults read "$configfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
 	
-	labelsArray=($(echo $labelsFromConfig))
+	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
+	
+	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
+	
+	ignoredLabelsArray+=($ignoredLabelsFromConfig)
+	requiredLabelsArray+=($requiredLabelsFromConfig)
+
+	labelsArray+=($labelsFromConfig $requiredLabels $requiredLabelsFromConfig)
+	
+# 	# deduplicate ignored labels
+	ignoredLabelsArray=($(tr ' ' '\n' <<< "${ignoredLabelsArray[@]}" | sort -u | tr '\n' ' '))
+
+# 	# deduplicate required labels
+	requiredLabelsArray=($(tr ' ' '\n' <<< "${requiredLabelsArray[@]}" | sort -u | tr '\n' ' '))
+
+# 	# deduplicate labels list
+	labelsArray=($(tr ' ' '\n' <<< "${labelsArray[@]}" | sort -u | tr '\n' ' '))
+
+	labelsArray=${labelsArray:|ignoredLabelsArray}
+
+	notice "Labels to install: $labelsArray"
+	notice "Ignoring labels: $ignoredLabelsArray"
+	notice "Required labels: $requiredLabelsArray"
+	
 	
 fi	
 # end discovery	
@@ -826,7 +905,7 @@ then
 
 	if [[ ${#queuedLabelsArray[@]} > 0 ]]
 	then
-		infoOut "Passing ${#queuedLabelsArray[@]} labels to Installomator."
+		infoOut "Passing ${#queuedLabelsArray[@]} labels to Installomator: $queuedLabelsArray"
 		doInstallations
 	else
 		infoOut "All apps up to date. Nothing to do." # inbox zero
