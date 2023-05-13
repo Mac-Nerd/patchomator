@@ -1,4 +1,5 @@
 #!/bin/zsh
+#set -x
 
 # Version: 2023.05.11 - 1.0.3
 # (One Point Oh? Oh!)
@@ -110,7 +111,10 @@ RESET=$(tput sgr0)
 RED=$(tput setaf 1)
 YELLOW=$(tput setaf 3)
 
-# Set SwiftDialog Options:
+# SwiftDialog off by default
+useswiftdialog=false
+
+# Set SwiftDialog Options. Quote your strings. Don't escape line breaks.
 dialogConfigurationOptions=(
 		--title "Patchomator"
 		--message "Updating your apps..."
@@ -632,6 +636,7 @@ queueLabel() {
 zparseopts -D -E -F -K -- \
 -help+=showhelp h+=showhelp \
 -install=installmode I=installmode \
+-swiftdialog=useswiftdialog d=useswiftdialog \
 -quiet=quietmode q=quietmode \
 -yes=noninteractive y=noninteractive \
 -verbose=verbose v=verbose \
@@ -639,7 +644,6 @@ zparseopts -D -E -F -K -- \
 -write=writeconfig w=writeconfig \
 -config:=configfile c:=configfile \
 -pathtoinstallomator:=InstallomatorPATH p:=InstallomatorPATH \
--swiftdialog=useswiftdialog d=useswiftdialog \
 -ignored:=ignoredLabels \
 -required:=requiredLabels
 
