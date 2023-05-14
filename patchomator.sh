@@ -1,5 +1,4 @@
 #!/bin/zsh
-set -x
 
 # Version: 2023.05.12 - 1.0.4
 # ("Hey... I think it is actually running now")
@@ -118,7 +117,7 @@ YELLOW=$(tput setaf 3 2>/dev/null)
 useswiftdialog=false
 
 # Set SwiftDialog Options. Quote your strings. Don't escape line breaks.
-dialogConfigurationOptions=(
+dialogListConfigurationOptions=(
 		--title "Patchomator"
 		--message "Updating your apps..."
 		--commandfile "$dialogCommandFile"
@@ -127,6 +126,17 @@ dialogConfigurationOptions=(
 		--button1disabled
 		--height 550
 		--width 1000
+		--icon "SF=bolt.circle color1=pink color2=blue"
+)
+
+dialogWriteConfigurationOptions=(
+		--title "Patchomator"
+		--message "Please wait while we find apps that need updating..."
+		--commandfile "$dialogCommandFile"
+		--ontop
+		--moveable
+		--mini
+		--progress
 		--icon "SF=bolt.circle color1=pink color2=blue"
 )
 
@@ -180,6 +190,9 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n"
+	completeSwiftDialogWrite
+	touch "$dialogCommandFile"
+	completeSwiftDialogList
 	exit 1
 }
 
@@ -365,8 +378,8 @@ doInstallations() {
 	# Count errors
 	errorCount=0
 
-	# Create our swiftDialog Window
-	swiftDialogWindow
+	# Create our main "list" swiftDialog Window
+	swiftDialogListWindow
 
 	for label in $queuedLabelsArray
 	do
@@ -396,7 +409,7 @@ doInstallations() {
 	echo "Errors: $errorCount"
 
 	# Close swiftdialog and delete tmp file
-	CompleteSwiftDialog
+	completeSwiftDialogList
 
 	caffexit $errorCount
 
@@ -406,7 +419,7 @@ checkSwiftDialog(){
 	if [ ! -e "/usr/local/bin/dialog" ] || [ ! -e "/Library/Application Support/Dialog/Dialog.app" ]
 	then
 		echo "SwiftDialog is not installed. Using Installomator to install it now."
-		${InstallomatorPATH} swiftdialog NOTIFY=success
+		${InstallomatorPATH} swiftdialog ${InstallomatorOptions} INSTALL=force
 	fi
 }
 
@@ -414,11 +427,11 @@ swiftDialogCommand(){
 	if $useswiftdialog
 	then	
 		echo "$@" > "$dialogCommandFile"
-		#sleep 1
+		sleep .2
 	fi
 }
 
-swiftDialogWindow(){
+swiftDialogListWindow(){
 # If we are using SwiftDialog
 	if $useswiftdialog
 	then
@@ -445,15 +458,16 @@ swiftDialogWindow(){
 				displayNames+=(${currentDisplayName})
 			fi
 		done
+		touch "$dialogCommandFile"
 		# Create our running swiftDialog window
 		$dialogPATH \
-		${dialogConfigurationOptions[@]} \
+		${dialogListConfigurationOptions[@]} \
 		${displayNames[@]} \
 		&
 	fi
 }
 
-CompleteSwiftDialog(){
+completeSwiftDialogList(){
 	if $swiftDialog
 	then
 		swiftDialogCommand "listitem: add, title: Updates Complete!,status: success"
@@ -465,7 +479,28 @@ CompleteSwiftDialog(){
 	rm "$dialogCommandFile"
 }
 
- 
+swiftDialogWriteWindow(){
+# If we are using SwiftDialog
+	checkSwiftDialog
+	touch "$dialogCommandFile"
+	if $useswiftdialog
+	then
+		$dialogPATH \
+		${dialogWriteConfigurationOptions[@]} \
+		&
+	fi
+}
+
+completeSwiftDialogWrite(){
+	if $useswiftdialog
+	then
+		swiftDialogCommand "quit:"
+		rm "$dialogCommandFile"
+	fi
+
+
+}
+
 PgetAppVersion() {
 	# renamed to avoid conflicts with Installomator version of the same function name.
 	# pkgs contains a version number, then we don't have to search for an app
@@ -836,11 +871,14 @@ notice "Checking for configuration at ${YELLOW}$configfile ${RESET}"
 if [[ ! -f $configfile ]] || [[ ${#writeconfig} -eq 1 ]]
 then
 	notice "No config file at $configfile. Running discovery."
+	# Call the bouncing progress SwiftDialog window
+	swiftDialogWriteWindow
 
 	# Write Config mode
 	# --write
 	if [[ ${#writeconfig} -eq 1 ]]
 	then
+
 		notice "Writing Config"
 
 		if [[ -d $configfile ]] # common mistake, select a directory, not a filename
@@ -873,7 +911,7 @@ then
 		/usr/libexec/PlistBuddy -c "clear dict" "${configfile}"
 		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configfile}"	
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
-
+		
 	fi
 
 	# can't do discovery without the labels files.
@@ -968,6 +1006,9 @@ then
 			fi
 		done
 	done
+
+	# Close our bouncing progress swiftDialog window
+	completeSwiftDialogWrite
 	
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
