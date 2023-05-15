@@ -635,6 +635,13 @@ then
 	exit 0
 fi
 
+
+# can't do discovery without the labels files.
+checkLabels
+
+
+
+
 # --install
 # some functions act differently based on install vs discovery/read
 if [[ ${#installmode} -eq 1 ]]
@@ -776,9 +783,6 @@ then
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
 
 	fi
-
-	# can't do discovery without the labels files.
-	checkLabels
 
 	# get current user
 	currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
