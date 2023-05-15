@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.05.12 - 1.0.4
-# ("Hey... I think it is actually running now")
+# Version: 2023.05.15 - 1.1.0
+# "Now more Swift!"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -11,15 +11,16 @@
 # 	Derek McKenzie
 # 	Armin Briegel
 #	Jordy Thery
+#	Trevor Sysock
+
 
 # To Do:
-# Add MDM deployed Non-interactive Mode --mdm "MDMName"
-# Add --installomatoroptions to pass options to installomator
+# [1.1] Add MDM deployed Non-interactive Mode --mdm "MDMName"
+# [1.1] Swift Dialog support
 
 
 # Changed:
-# Turn off pretty printed formatting for --mdm and --quiet
-# Monterey fix for working path
+# Turn off pretty printed formatting for --quiet
 # Major overhaul based on MacAdmins #patchomator feedback
 # 7 days -> 30 days
 # Added required/excluded keys in preference file
@@ -27,9 +28,10 @@
 # git and Xcode tools are optional now. Did you know GitHub has a pretty decent API?
 # No longer requires root for normal operation. (thanks, @tlark)
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
-# Added SwiftDialog support with --swiftdialog or -d options (Thanks Trevor Sysock @BigMacAdmin)
 
 # Done:
+# Monterey fix for working path
+# Add --installomatoroptions to pass options to installomator
 # Install package/github release
 # add back installomator install steps
 # use release version of installomator, not dev. (Thanks Adam Codega)
