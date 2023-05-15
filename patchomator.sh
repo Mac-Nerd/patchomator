@@ -739,13 +739,25 @@ then
 
 		if ! [[ -f $configfile ]] # no existing config
 		then
-			if [[ -w "$(dirname $configfile)" ]]
-			then
+			if [[ -d "$(dirname $configfile)" ]] 
+			# directory exists
+			then			
+				if [[ -w "$(dirname $configfile)" ]]
+				#directory is writable
+				then
+					infoOut "No config file at $configfile. Creating one now."
+					# creates a blank plist
+					touch "$configfile"
+				else
+					# exists, but not writable
+					fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				fi
+			else
+			# directory doesn't exist
 				infoOut "No config file at $configfile. Creating one now."
 				makepath "$configfile"
 				# creates a blank plist
-			else
-				fatal "$(dirname $configfile) is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				touch "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi
 
 		else # file exists
