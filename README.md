@@ -58,11 +58,12 @@ Optional lists of ignored and/or required labels can be added to fine-tune the i
 
 `--pathtoinstallomator "path to Installomator.sh"`	Overrides the default Installomator path for `--install` option.
 
-`-q` | `--quiet`	 *Quiet mode*. Minimal output.
+`-q` | `--quiet`	    *Quiet mode*. Minimal output.
 
-`-v` | `--verbose`	 *Verbose mode*. Logs more information to stdout. Overrides -q
+`-v` | `--verbose`	    *Verbose mode*. Logs more information to stdout. Overrides -q
+`-d` | `--swiftdialog`  Use SwiftDialog to provide end users with feedback about what's happening
 
-`-h` | `--help` 	 Show usage message and exits.
+`-h` | `--help` 	    Show usage message and exits.
 
 
 When run, Patchomator will prompt you to install Installomator, if it doesn't already exist at the default path or the one specified with `-p [InstallomatorPATH]`. Patchomator will happily run without Installomator, but won't actually install any updates by itself.
@@ -132,6 +133,8 @@ and as a one-time switch on the command line with `--required`
 
 ```patchomator.sh --required "googlechromepkg zoom"```
 
+## SwiftDialog Integration
+Use `--swiftdialog` or `-d` to get a SwiftDialog list view of each item thats being processed. Updates are sent to the dialog via native Installomator/SwiftDialog integration.
 
 ## Patching with Patchomator
 

@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2023.05.12 - 1.0.3
+# Version: 2023.05.12 - 1.0.4
 # ("Hey... I think it is actually running now")
 
 #  Big Thanks to:
@@ -27,6 +27,7 @@
 # git and Xcode tools are optional now. Did you know GitHub has a pretty decent API?
 # No longer requires root for normal operation. (thanks, @tlark)
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
+# Added SwiftDialog support with --swiftdialog or -d options (Thanks Trevor Sysock @BigMacAdmin)
 
 # Done:
 # Install package/github release
@@ -97,6 +98,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("/Library/Application Support/Patchomator/patchomator.plist")
+dialogPATH="/usr/local/bin/dialog"
+dialogCommandFile=$(mktemp /var/tmp/dialog.patchomator.XXXXX)
 #patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
 
 # "realpath" doesn't exist on Monterey. 
@@ -110,7 +113,32 @@ RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
 
+# SwiftDialog off by default
+useswiftdialog=false
 
+# Set SwiftDialog Options. Quote your strings. Don't escape line breaks.
+dialogListConfigurationOptions=(
+		--title "Patchomator"
+		--message "Updating your apps..."
+		--commandfile "$dialogCommandFile"
+		--ontop
+		--moveable
+		--button1disabled
+		--height 550
+		--width 1000
+		--icon "SF=bolt.circle color1=pink color2=blue"
+)
+
+dialogWriteConfigurationOptions=(
+		--title "Patchomator"
+		--message "Please wait while we find apps that need updating..."
+		--commandfile "$dialogCommandFile"
+		--ontop
+		--moveable
+		--mini
+		--progress
+		--icon "SF=bolt.circle color1=pink color2=blue"
+)
 
 #######################################
 # Functions
@@ -127,6 +155,7 @@ usage() {
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
+	echo "\t${BOLD}-I | --swiftdialog \t${RESET} Create a SwiftDialog list to show progress to end user.${BOLD}Cannot be used at the login window, requires an active user.${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
@@ -161,6 +190,9 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n"
+	completeSwiftDialogWrite
+	touch "$dialogCommandFile"
+	completeSwiftDialogList
 	exit 1
 }
 
@@ -346,10 +378,28 @@ doInstallations() {
 	# Count errors
 	errorCount=0
 
+	# Create our main "list" swiftDialog Window
+	swiftDialogListWindow
+
 	for label in $queuedLabelsArray
 	do
 		echo "Installing ${label}..."
-		${InstallomatorPATH} ${label} ${InstallomatorOptions}
+
+		# Use built in SwiftDialog Installomator integration options (if swift dialog is being used)
+		swiftDialogOptions=()
+		if $useswiftdialog
+		then
+			swiftDialogOptions+=(DIALOG_CMD_FILE="\"${dialogCommandFile}\"")
+
+			# Get the "name=" value from the current label and use it in our SwiftDialog list
+			currentDisplayName=$(sed -n '/# label descriptions/,$p' ${InstallomatorPATH} | grep -i -A 50 "${label})" | grep -m 1 "name=" | sed 's/.*=//' | sed 's/"//g')
+			# There are some weird \' shenanigans here because Installomator passes this through eval
+			swiftDialogOptions+=(DIALOG_LIST_ITEM_NAME=\'"${currentDisplayName}"\')
+			sleep .5
+		fi
+
+		# Run Installomator
+		${InstallomatorPATH} ${label} ${InstallomatorOptions} ${swiftDialogOptions[@]}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
 			let errorCount++
@@ -358,11 +408,99 @@ doInstallations() {
 
 	echo "Errors: $errorCount"
 
+	# Close swiftdialog and delete tmp file
+	completeSwiftDialogList
+
 	caffexit $errorCount
 
 }
- 
- 
+
+checkSwiftDialog(){
+	if [ ! -e "/usr/local/bin/dialog" ] || [ ! -e "/Library/Application Support/Dialog/Dialog.app" ]
+	then
+		echo "SwiftDialog is not installed. Using Installomator to install it now."
+		${InstallomatorPATH} swiftdialog ${InstallomatorOptions} INSTALL=force
+	fi
+}
+
+swiftDialogCommand(){
+	if $useswiftdialog
+	then	
+		echo "$@" > "$dialogCommandFile"
+		sleep .2
+	fi
+}
+
+swiftDialogListWindow(){
+# If we are using SwiftDialog
+	if $useswiftdialog
+	then
+		# Check if there's a valid logged in user:
+		currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
+		if [ "$currentUser" = "root" ] \
+			|| [ "$currentUser" = "loginwindow" ] \
+			|| [ "$currentUser" = "_mbsetupuser" ] \
+			|| [ -z "$currentUser" ] 
+		then
+			return 0
+		fi
+		# Install SwiftDialog if its not already there
+		checkSwiftDialog
+
+		# Build our list of Display Names for SwiftDialog list
+		for label in $queuedLabelsArray
+		do
+			# Get the "name=" value from the current label and use it in our SwiftDialog list
+			currentDisplayName=$(sed -n '/# label descriptions/,$p' ${InstallomatorPATH} | grep -i -A 50 "${label})" | grep -m 1 "name=" | sed 's/.*=//' | sed 's/"//g')
+			if [ -n "$currentDisplayName" ]
+			then
+				displayNames+=("--listitem")
+				displayNames+=(${currentDisplayName})
+			fi
+		done
+		touch "$dialogCommandFile"
+		# Create our running swiftDialog window
+		$dialogPATH \
+		${dialogListConfigurationOptions[@]} \
+		${displayNames[@]} \
+		&
+	fi
+}
+
+completeSwiftDialogList(){
+	if $swiftDialog
+	then
+		swiftDialogCommand "listitem: add, title: Updates Complete!,status: success"
+		sleep 1
+		# Activate button 1
+		swiftDialogCommand "button1: enabled"
+	fi
+	# Delete the tmp command file
+	rm "$dialogCommandFile"
+}
+
+swiftDialogWriteWindow(){
+# If we are using SwiftDialog
+	checkSwiftDialog
+	touch "$dialogCommandFile"
+	if $useswiftdialog
+	then
+		$dialogPATH \
+		${dialogWriteConfigurationOptions[@]} \
+		&
+	fi
+}
+
+completeSwiftDialogWrite(){
+	if $useswiftdialog
+	then
+		swiftDialogCommand "quit:"
+		rm "$dialogCommandFile"
+	fi
+
+
+}
+
 PgetAppVersion() {
 	# renamed to avoid conflicts with Installomator version of the same function name.
 	# pkgs contains a version number, then we don't have to search for an app
@@ -541,6 +679,7 @@ queueLabel() {
 zparseopts -D -E -F -K -- \
 -help+=showhelp h+=showhelp \
 -install=installmode I=installmode \
+-swiftdialog=useswiftdialog d=useswiftdialog \
 -quiet=quietmode q=quietmode \
 -yes=noninteractive y=noninteractive \
 -verbose=verbose v=verbose \
@@ -664,6 +803,13 @@ then
 	
 fi
 
+# --swiftdialog
+# if --swiftdialog argument is passed, then swiftdialog will be used
+if [[ ${#useswiftdialog} -eq 1 ]]
+then
+	useswiftdialog=true
+fi
+
 # discovery mode
 # the main attraction.
 
@@ -732,11 +878,14 @@ notice "Checking for configuration at ${YELLOW}$configfile ${RESET}"
 if [[ ! -f $configfile ]] || [[ ${#writeconfig} -eq 1 ]]
 then
 	notice "No config file at $configfile. Running discovery."
+	# Call the bouncing progress SwiftDialog window
+	swiftDialogWriteWindow
 
 	# Write Config mode
 	# --write
 	if [[ ${#writeconfig} -eq 1 ]]
 	then
+
 		notice "Writing Config"
 
 		if [[ -d $configfile ]] # common mistake, select a directory, not a filename
@@ -781,7 +930,7 @@ then
 		/usr/libexec/PlistBuddy -c "clear dict" "${configfile}"
 		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configfile}"	
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
-
+		
 	fi
 
 	# get current user
@@ -873,6 +1022,9 @@ then
 			fi
 		done
 	done
+
+	# Close our bouncing progress swiftDialog window
+	completeSwiftDialogWrite
 	
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
