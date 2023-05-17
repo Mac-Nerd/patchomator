@@ -905,7 +905,8 @@ then
 				then
 					infoOut "No config file at $configfile. Creating one now."
 					# creates a blank plist
-					touch "$configfile"
+#					touch "$configfile"
+					plutil -create xml1 "$configfile" 
 				else
 					# exists, but not writable
 					fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
@@ -915,7 +916,7 @@ then
 				infoOut "No config file at $configfile. Creating one now."
 				makepath "$configfile"
 				# creates a blank plist
-				touch "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				plutil -create xml1 "$configfile"  || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi
 
 		else # file exists
