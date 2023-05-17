@@ -128,7 +128,7 @@ dialogListConfigurationOptions=(
 		--button1disabled
 		--height 550
 		--width 1000
-		--icon "SF=bolt.circle color1=pink color2=blue"
+		--icon "https://raw.githubusercontent.com/Mac-Nerd/patchomator/57beded0b7c9e131e1ce488ca7a87d67bc050a43/images/patch-o-mater-icon.png"
 )
 
 dialogWriteConfigurationOptions=(
@@ -139,7 +139,7 @@ dialogWriteConfigurationOptions=(
 		--moveable
 		--mini
 		--progress
-		--icon "SF=bolt.circle color1=pink color2=blue"
+		--icon "https://raw.githubusercontent.com/Mac-Nerd/patchomator/57beded0b7c9e131e1ce488ca7a87d67bc050a43/images/patch-o-mater-icon.png"
 )
 
 #######################################
@@ -157,7 +157,7 @@ usage() {
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
-	echo "\t${BOLD}-I | --swiftdialog \t${RESET} Create a SwiftDialog list to show progress to end user.${BOLD}Cannot be used at the login window, requires an active user.${RESET}"
+	echo "\t${BOLD}-d | --swiftdialog \t${RESET} Create a SwiftDialog list to show progress to end user.${BOLD}Cannot be used at the login window, requires an active user.${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
