@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.05.12 - 1.0.3
-# ("Hey... I think it is actually running now")
+# Version: 2023.05.15 - 1.0.4
+# "seems to work just fine(?)"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -11,14 +11,17 @@
 # 	Derek McKenzie
 # 	Armin Briegel
 #	Jordy Thery
+#	Trevor Sysock
+
 
 # To Do:
-# Add MDM deployed Non-interactive Mode --mdm "MDMName"
-# Add --installomatoroptions to pass options to installomator
+# [1.1] Add MDM deployed Non-interactive Mode --mdm "MDMName"
+# [1.1] Swift Dialog support
 
 
 # Changed:
-# Turn off pretty printed formatting for --mdm and --quiet
+# Add --installomatoroptions to pass options to installomator
+# Turn off pretty printed formatting for --quiet
 # Monterey fix for working path
 # Major overhaul based on MacAdmins #patchomator feedback
 # 7 days -> 30 days
@@ -754,7 +757,9 @@ then
 				then
 					infoOut "No config file at $configfile. Creating one now."
 					# creates a blank plist
-					touch "$configfile"
+#					touch "$configfile"
+					plutil -create xml1 "$configfile" 
+
 				else
 					# exists, but not writable
 					fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
@@ -764,7 +769,7 @@ then
 				infoOut "No config file at $configfile. Creating one now."
 				makepath "$configfile"
 				# creates a blank plist
-				touch "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				plutil -create xml1 "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi
 
 		else # file exists
