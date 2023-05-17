@@ -61,6 +61,7 @@ Optional lists of ignored and/or required labels can be added to fine-tune the i
 `-q` | `--quiet`	    *Quiet mode*. Minimal output.
 
 `-v` | `--verbose`	    *Verbose mode*. Logs more information to stdout. Overrides -q
+
 `-d` | `--swiftdialog`  Use SwiftDialog to provide end users with feedback about what's happening
 
 `-h` | `--help` 	    Show usage message and exits.
@@ -134,6 +135,8 @@ and as a one-time switch on the command line with `--required`
 ```patchomator.sh --required "googlechromepkg zoom"```
 
 ## SwiftDialog Integration
+![Swift Dialog screenshot](https://github.com/Mac-Nerd/patchomator/blob/1.1/images/SwiftDialogScreenshot.png?raw=true)
+
 Use `--swiftdialog` or `-d` to get a SwiftDialog list view of each item thats being processed. Updates are sent to the dialog via native Installomator/SwiftDialog integration.
 
 ## Patching with Patchomator
