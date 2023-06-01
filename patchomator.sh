@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.05.15 - 1.0.4
-# "seems to work just fine(?)"
+# Version: 2023.06.01 - 1.0.6
+# "nothing to see here"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -20,6 +20,7 @@
 
 
 # Changed:
+# Add --ignored "all" option to skip discovery all together
 # Add --installomatoroptions to pass options to installomator
 # Turn off pretty printed formatting for --quiet
 # Monterey fix for working path
@@ -113,6 +114,7 @@ RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
 
+skipDiscovery=false
 
 
 #######################################
@@ -529,7 +531,7 @@ queueLabel() {
 	if [[ $installmode ]]
 	then
 		labelsArray+="$label_name "
-		echo "$labelsArray"
+#		echo "$labelsArray"
 	fi
 		
 }
@@ -541,6 +543,7 @@ queueLabel() {
 
 # Command line options
 
+#zparseopts -D -E -F -K -- \
 zparseopts -D -E -F -K -- \
 -help+=showhelp h+=showhelp \
 -install=installmode I=installmode \
@@ -554,7 +557,8 @@ zparseopts -D -E -F -K -- \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
 -mdm:=MDMName \
--options:=InstallomatorOptions
+-options:=InstallomatorOptions \
+|| fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
 # -I --install
@@ -675,7 +679,7 @@ fi
 if [[ -n "$requiredLabels" ]]
 then
 	
-	requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")	
+	requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")
 	notice "Required labels: $requiredLabelsArray"
 
 	for requiredLabel in $requiredLabelsArray
@@ -691,6 +695,7 @@ then
 
 			if [[ $installmode ]]
 			then
+				label_name=$requiredLabel
 				queueLabel # add to installer queue
 			fi
 		else
@@ -706,24 +711,34 @@ if [[ -n "$ignoredLabels" ]]
 then
 
 	ignoredLabelsArray=("${(@s/ /)ignoredLabels[-1]}")	
-	notice "[CLI] Ignoring labels: $ignoredLabelsArray"
 
-	for ignoredLabel in $ignoredLabelsArray
-	do
-		if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
-		then
-#			notice "Skipping ${ignoredLabel}."
-		
-			if [[ ${#writeconfig} -eq 1 ]]
+	if [[ "$(echo $ignoredLabelsArray | tr '[:upper:]' '[:lower:]')" == "all" ]] # ALL All all aLl etc.
+	then
+	
+		notice "[CLI] Ignored=all. Skipping discovery."
+		skipDiscovery=true
+	
+	else
+		notice "[CLI] Ignoring labels: $ignoredLabelsArray"
+
+		for ignoredLabel in $ignoredLabelsArray
+		do
+			if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
 			then
-				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
-			fi
+	#			notice "Skipping ${ignoredLabel}."
+		
+				if [[ ${#writeconfig} -eq 1 ]]
+				then
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
+				fi
 					
-		else
-			error "No such label ${ignoredLabel}"
-		fi
+			else
+				error "No such label ${ignoredLabel}"
+			fi
 
-	done
+		done
+	fi
+
 fi
 
 
@@ -824,7 +839,7 @@ then
 		labelFile=$(basename -- "$labelFragment")
 		labelFile="${labelFile%.*}"
 	
-		if [[ $ignoredLabelsArray =~ ${labelFile} ]]
+		if [[ $ignoredLabelsArray =~ ${labelFile} ]] || [[ $skipDiscovery ]]
 		then
 			notice "Ignoring label $labelFile."
 			continue # we're done here. Move along.
@@ -923,10 +938,11 @@ then
 	IFS=' '
 
 	queuedLabelsArray=("${(@s/ /)labelsArray}")	
+	numLabels=$((${#queuedLabelsArray[@]} - 1))
 
-	if [[ ${#queuedLabelsArray[@]} > 0 ]]
+	if [[ $numLabels > 0 ]]
 	then
-		infoOut "Passing ${#queuedLabelsArray[@]} labels to Installomator: $queuedLabelsArray"
+		infoOut "Passing $numLabels labels to Installomator: $queuedLabelsArray"
 		doInstallations
 	else
 		infoOut "All apps up to date. Nothing to do." # inbox zero
