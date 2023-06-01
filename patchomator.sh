@@ -839,7 +839,7 @@ then
 		labelFile=$(basename -- "$labelFragment")
 		labelFile="${labelFile%.*}"
 	
-		if [[ $ignoredLabelsArray =~ ${labelFile} ]] || [[ $skipDiscovery ]]
+		if [[ $ignoredLabelsArray =~ ${labelFile} ]] || [[ $skipDiscovery == true ]]
 		then
 			notice "Ignoring label $labelFile."
 			continue # we're done here. Move along.
