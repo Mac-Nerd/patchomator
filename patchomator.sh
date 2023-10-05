@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.06.01 - 1.0.6
-# "nothing to see here"
+# Version: 2023.10.05 - 1.0.7
+# "there's an app for that"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -15,11 +15,15 @@
 
 
 # To Do:
+# [speed] Defer verification step until discovery is complete. Parallelize as much as possible.
 # [1.1] Add MDM deployed Non-interactive Mode --mdm "MDMName"
 # [1.1] Swift Dialog support
 
 
 # Changed:
+# Respects --installomatoroptions setting for ignoring App Store apps (or not)
+
+# Done:
 # Add --ignored "all" option to skip discovery all together
 # Add --installomatoroptions to pass options to installomator
 # Turn off pretty printed formatting for --quiet
@@ -31,8 +35,6 @@
 # git and Xcode tools are optional now. Did you know GitHub has a pretty decent API?
 # No longer requires root for normal operation. (thanks, @tlark)
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
-
-# Done:
 # Install package/github release
 # add back installomator install steps
 # use release version of installomator, not dev. (Thanks Adam Codega)
@@ -95,6 +97,8 @@ fi
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
 
+declare -A InstallomatorOptions=()
+
 
 # default paths
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -133,6 +137,7 @@ usage() {
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
+	echo "\t${BOLD}--options \"Installomator options\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
 	exit 0
@@ -206,6 +211,19 @@ checkInstallomator() {
 	# check for existence of Installomator to enable installation of updates
 	notice "Checking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
+	InstalledVersion=$($InstallomatorPATH version)
+	LatestVersion=$(versionFromGit Installomator Installomator )
+
+	notice "Latest Version: $LatestVersion - Installed Version: $InstalledVersion"
+	
+	if [[ "$InstalledVersion" -ne "$LatestVersion" ]]
+	then
+		error "Installomator was found, but is out of date. You can update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
+
+		OfferToInstall
+	fi
+
+$(versionFromGit Installomator Installomator )
 	if ! [[ -f $InstallomatorPATH ]]
 	then
 		error "Installomator was not found at ${YELLOW}$InstallomatorPATH ${RESET}"
@@ -244,7 +262,7 @@ OfferToInstall() {
 	else
 		echo "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
 		\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
-		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with sudo or without ${YELLOW}--install${RESET}"
+		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with ${YELLOW}sudo${RESET} or without ${YELLOW}--install${RESET}"
 
 		exit 0
 
@@ -340,9 +358,6 @@ downloadLatestLabels() {
 # --install
 doInstallations() {
 	
-	InstallomatorOptions=$InstallomatorOptions[-1]
-
-	
 
 	# No sleeping
 	/usr/bin/caffeinate -d -i -m -u &
@@ -351,10 +366,17 @@ doInstallations() {
 	# Count errors
 	errorCount=0
 
+	# convert InstallomatorOptions array to string
+	InstallomatorOptionsString=""
+
+	for key value in ${(kv)InstallomatorOptions}; do
+		InstallomatorOptionsString+=" $key=\"$value\""
+	done
+
 	for label in $queuedLabelsArray
 	do
 		echo "Installing ${label}..."
-		${InstallomatorPATH} ${label} ${InstallomatorOptions}
+		${InstallomatorPATH} ${label} ${InstallomatorOptionsString}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
 			let errorCount++
@@ -420,11 +442,12 @@ PgetAppVersion() {
 			notice "--- found app at $installedAppPath"
 						
 			# Is current app from App Store
-			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]]
+			# AND is IGNORE_APP_STORE_APPS=yes?
+
+			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]] && [[ $InstallomatorOptions[IGNORE_APP_STORE_APPS] =~ [YyEeSs1] ]]
 			then
-				notice "--- $appName is from App Store. Skipping."
-				return
-			# Check disambiguation?
+				notice "$appName is from App Store. Ignoring."
+				notice "Use the Installomator option \"IGNORE_APP_STORE_APPS=no\" to replace."
 			
 			else
 				verifyApp $installedAppPath
@@ -432,7 +455,6 @@ PgetAppVersion() {
 		fi
 
 	fi
-
 
 }
 
@@ -496,6 +518,9 @@ SCRIPT_EOF
 				then
 					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${label_name}" "$configfile"
 				fi
+				# Remove duplicate label already in queue:
+				labelsArray=$(echo "$labelsArray" | sed s/"$label_name "//)
+				
 			else
 				echo "\t${BOLD}Skipping.${RESET}"
 				return
@@ -557,7 +582,7 @@ zparseopts -D -E -F -K -- \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
 -mdm:=MDMName \
--options:=InstallomatorOptions \
+-options:=CLIOptions \
 || fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
@@ -599,6 +624,32 @@ MDMName=$MDMName[-1] #[one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, ot
 # --quiet
 # --yes
 
+
+
+### Default Installomator Options:
+
+InstallomatorOptions=(\
+[NOTIFY]=success \
+[PROMPT_TIMEOUT]=86400 \
+[BLOCKING_PROCESS_ACTION]=tell_user \
+[LOGO]=appstore \
+[IGNORE_APP_STORE_APPS]="no" \
+[SYSTEMOWNER]=0 \
+[REOPEN]="yes" \
+[INTERRUPT_DND]="yes" \
+[NOTIFY_DIALOG]=1 \
+[LOGGING]="INFO" \
+)
+
+# Parse command line --options
+OptionsString=$CLIOptions[-1]
+# split on spaces, then on =
+AddOptions=$(echo "$OptionsString" | awk -v OFS="\n" '{$1=$1}1' | awk -v FS="=" '{print "InstallomatorOptions+=\(["$1"]="$2"\)"}')
+
+# Add them to the InstallomatorOptions array
+eval "$AddOptions"
+
+# Additional optional settings by MDM
 if [ "$MDMName" ]
 then
 	quietmode[1]=true
@@ -606,24 +657,21 @@ then
 	noninteractive[1]=true
 fi
 
-
 if [ "$MDMName" ]
 then
 	# set logos for known MDM vendors
 	if [ "$MDMName" != "other" ]
 	then
-		InstallomatorOptions+=" LOGO=$MDMName"
+		InstallomatorOptions[LOGO]="$MDMName"
 	fi
-
-	# Options for typical MDM operation
-
-	InstallomatorOptions+=" "
-
 fi
-infoOut "Installomator Options: $InstallomatorOptions"
 
+notice "Option Count ${#InstallomatorOptions[@]}"
+notice "Installomator Options:"
 
-
+for key value in ${(kv)InstallomatorOptions}; do
+    notice " - $key=\"$value\""
+done
 
 # ReadConfig mode - read existing plist and display in pretty columns
 # skips discovery and all the rest
@@ -646,6 +694,14 @@ fi
 # can't do discovery without the labels files.
 checkLabels
 
+# MOAR Functions! miscellaneous pieces referenced in the occasional label
+# Needs to confirm that labels exist first.
+source "$fragmentsPATH/functions.sh"
+
+# can't install without the 'mator
+# can't check version without the functions. 
+checkInstallomator	
+
 
 
 
@@ -659,9 +715,6 @@ fi
 
 if [[ $installmode ]]
 then
-
-	# can't install without the 'mator
-	checkInstallomator	
 
 	# Check your privilege
 	if ! $IAMROOT
@@ -827,10 +880,6 @@ then
 	IFS=$'\n'
 	in_label=0
 	current_label=""
-
-	# MOAR Functions! miscellaneous pieces referenced in the occasional label
-	# Needs to confirm that labels exist first.
-	source "$fragmentsPATH/functions.sh"
 
 	# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
 
