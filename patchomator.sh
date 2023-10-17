@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.10.05 - 1.0.7
-# "there's an app for that"
+# Version: 2023.10.05 - 1.0.8
+# "reading is FUNdamental!"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -14,6 +14,9 @@
 #	Trevor Sysock
 
 
+# To Fix: 
+
+
 # To Do:
 # [speed] Defer verification step until discovery is complete. Parallelize as much as possible.
 # [1.1] Add MDM deployed Non-interactive Mode --mdm "MDMName"
@@ -21,6 +24,8 @@
 
 
 # Changed:
+# On --write, add any found label to the config, even if the latest version is installed
+# Messaging for missing config file on --write
 # Respects --installomatoroptions setting for ignoring App Store apps (or not)
 
 # Done:
@@ -211,8 +216,8 @@ checkInstallomator() {
 	# check for existence of Installomator to enable installation of updates
 	notice "Checking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
-	InstalledVersion=$($InstallomatorPATH version)
-	LatestVersion=$(versionFromGit Installomator Installomator )
+	InstalledVersion="$($InstallomatorPATH version)"
+	LatestVersion="$(versionFromGit Installomator Installomator)"
 
 	notice "Latest Version: $LatestVersion - Installed Version: $InstalledVersion"
 	
@@ -223,7 +228,6 @@ checkInstallomator() {
 		OfferToInstall
 	fi
 
-$(versionFromGit Installomator Installomator )
 	if ! [[ -f $InstallomatorPATH ]]
 	then
 		error "Installomator was not found at ${YELLOW}$InstallomatorPATH ${RESET}"
@@ -389,22 +393,22 @@ doInstallations() {
 
 }
  
- 
+# renamed to avoid conflicts with Installomator version of the same function name. 
 PgetAppVersion() {
-	# renamed to avoid conflicts with Installomator version of the same function name.
-	# pkgs contains a version number, then we don't have to search for an app
-	if [[ $packageID != "" ]]; then
+
+	# shortcut: pkgs contains a version number, if it's installed then we don't have to parse the plist. 
+	# still need to confirm it's installed, tho. Receipts can be unreliable.
+	if [[ "$packageID" != "" ]]
+	then
 		
 		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
 		
-		if [[ $appversion != "" ]]; then
-			notice "Label: $label_name"
-			notice "--- found packageID $packageID installed"
-			
-			InstalledLabelsArray+=( "$label_name" )
-			
-			return
-		fi
+# 		if [[ $appversion != "" ]]; then
+# 			notice "Label: $label_name"
+# 			notice "--- found packageID $packageID installed"
+#			InstalledLabelsArray+=( "$label_name" )
+#		fi
+
 	fi
 
 	if [ -z "$appName" ]; then
@@ -427,14 +431,16 @@ PgetAppVersion() {
 	
 	appPathArray=( ${(0)applist} )
 
-	if [[ ${#appPathArray} -gt 0 ]]; then
+	if [[ ${#appPathArray} -gt 0 ]]
+	then
 		
 		filteredAppPaths=( ${(M)appPathArray:#${targetDir}*} )
 
-		if [[ ${#filteredAppPaths} -eq 1 ]]; then
+		if [[ ${#filteredAppPaths} -eq 1 ]]
+		then
 			installedAppPath=$filteredAppPaths[1]
 			
-			appversion=$(defaults read $installedAppPath/Contents/Info.plist $versionKey) #Not dependant on Spotlight indexing
+			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey")
 
 			infoOut "Found $appName version $appversion"
 
@@ -470,7 +476,7 @@ verifyApp() {
 
     if [[ $appVerifyStatus -ne 0 ]]
     then
-        error "Error verifying $appPath"
+        error "Error verifying $appPath: Returned $appVerifyStatus"
         return
     fi
 
@@ -802,7 +808,6 @@ notice "Checking for configuration at ${YELLOW}$configfile ${RESET}"
 
 if [[ ! -f $configfile ]] || [[ ${#writeconfig} -eq 1 ]]
 then
-	notice "No config file at $configfile. Running discovery."
 
 	# Write Config mode
 	# --write
@@ -823,7 +828,7 @@ then
 				if [[ -w "$(dirname $configfile)" ]]
 				#directory is writable
 				then
-					infoOut "No config file at $configfile. Creating one now."
+					infoOut "No existing config file at $configfile. Creating one now."
 					# creates a blank plist
 #					touch "$configfile"
 					plutil -create xml1 "$configfile" 
@@ -834,7 +839,7 @@ then
 				fi
 			else
 			# directory doesn't exist
-				infoOut "No config file at $configfile. Creating one now."
+				infoOut "No existing config file at $configfile. Creating one now."
 				makepath "$configfile"
 				# creates a blank plist
 				plutil -create xml1 "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
@@ -844,7 +849,7 @@ then
 
 			if [[ -w $configfile ]]
 			then 
-				echo "\t${BOLD}Refreshing $configfile ${RESET}"
+				infoOut "Refreshing $configfile"
 			else
 				fatal "$configfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi	
