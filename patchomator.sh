@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.10.05 - 1.0.8
-# "reading is FUNdamental!"
+# Version: 2023.11.07 - 1.0.9
+# ""
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -24,6 +24,8 @@
 
 
 # Changed:
+# Offers to install Installomator update, but requires user intervention.
+# If MDM is defined, no longer assumes installmode=true
 # On --write, add any found label to the config, even if the latest version is installed
 # Messaging for missing config file on --write
 # Respects --installomatoroptions setting for ignoring App Store apps (or not)
@@ -225,7 +227,12 @@ checkInstallomator() {
 	then
 		error "Installomator was found, but is out of date. You can update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
 
-		OfferToInstall
+		if [[ ${#noninteractive} -eq 1 ]]
+		then
+			notice "Running in non-interactive mode. Skipping Installomator update."
+		else
+			OfferToInstall
+		fi
 	fi
 
 	if ! [[ -f $InstallomatorPATH ]]
@@ -234,7 +241,13 @@ checkInstallomator() {
 	
 		LatestInstallomator=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
 
-		OfferToInstall
+		if [[ ${#noninteractive} -eq 1 ]]
+		then
+			notice "Running in non-interactive mode. Skipping Installomator install."
+		else
+			OfferToInstall
+		fi
+		
 		
 	else
 		if [ $($InstallomatorPATH version | cut -d . -f 1) -lt 10 ]
@@ -253,7 +266,8 @@ OfferToInstall() {
 	then
 		echo -n "Patchomator can still discover apps on the system and create a configuration for later use, but will not be able to install or update anything without Installomator. \
 		\n${BOLD}Download and install Installomator now? ${YELLOW}[y/N]${RESET} "
-		[[ ${#noninteractive} -eq 1 ]] || read DownloadFromGithub
+			
+		read DownloadFromGithub
 
 		if [[ $DownloadFromGithub =~ '[Yy]' ]]
 		then
@@ -261,15 +275,16 @@ OfferToInstall() {
 		else
 			echo "${BOLD}Continuing without Installomator.${RESET}"
 			# disable installs
-			installmode=false
+			if [[ $installmode ]]
+			then
+				fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
+				\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
+			fi
 		fi
 	else
-		echo "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
+		fatal "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
 		\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
 		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with ${YELLOW}sudo${RESET} or without ${YELLOW}--install${RESET}"
-
-		exit 0
-
 	fi
 }
 
@@ -659,7 +674,7 @@ eval "$AddOptions"
 if [ "$MDMName" ]
 then
 	quietmode[1]=true
-	installmode=true
+#	installmode=true
 	noninteractive[1]=true
 fi
 
