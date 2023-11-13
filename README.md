@@ -58,6 +58,8 @@ Optional lists of ignored and/or required labels can be added to fine-tune the i
 
 `--pathtoinstallomator "path to Installomator.sh"`	Overrides the default Installomator path for `--install` option.
 
+`--options "option1=value, option2=value..."` 	 Command line options to pass to Installomator during installation mode. Multiple command line option should be separated by commas, and inside quotes. For more information, see the [Installomator Wiki](https://github.com/Installomator/Installomator/wiki/Configuration-and-Variables)
+
 `-q` | `--quiet`	 *Quiet mode*. Minimal output.
 
 `-v` | `--verbose`	 *Verbose mode*. Logs more information to stdout. Overrides -q
