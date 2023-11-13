@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.05.15 - 1.1.0
-# "Now more Swift!"
+# Version: 2023.11.07 - 1.1.RC1
+# ""
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -14,13 +14,28 @@
 #	Trevor Sysock
 
 
+# To Fix: 
+
+
 # To Do:
 # [1.1] Add MDM deployed Non-interactive Mode --mdm "MDMName"
 # [1.1] Swift Dialog support
 
 
 # Changed:
+# [speed] --skip-verify to skip the step of verifying discovered apps. Does *not* skip the verification on install. 
+# [speed] Defer verification step until discovery is complete. Parallelize as much as possible.
+
+# Offers to install Installomator update, but requires user intervention.
+# On --write, add any found label to the config, even if the latest version is installed
+# Messaging for missing config file on --write
+# Respects --installomatoroptions setting for ignoring App Store apps (or not)
+
+# Done:
+# Add --ignored "all" option to skip discovery all together
+# Add --installomatoroptions to pass options to installomator
 # Turn off pretty printed formatting for --quiet
+# Monterey fix for working path
 # Major overhaul based on MacAdmins #patchomator feedback
 # 7 days -> 30 days
 # Added required/excluded keys in preference file
@@ -28,10 +43,6 @@
 # git and Xcode tools are optional now. Did you know GitHub has a pretty decent API?
 # No longer requires root for normal operation. (thanks, @tlark)
 # Downloads XCode Command Line Tools to provide git (Thanks Adam Codega)
-
-# Done:
-# Monterey fix for working path
-# Add --installomatoroptions to pass options to installomator
 # Install package/github release
 # add back installomator install steps
 # use release version of installomator, not dev. (Thanks Adam Codega)
@@ -94,14 +105,14 @@ fi
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
 
+declare -A InstallomatorOptions=()
+
 
 # default paths
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 configfile=("/Library/Application Support/Patchomator/patchomator.plist")
-dialogPATH="/usr/local/bin/dialog"
-dialogCommandFile=$(mktemp /var/tmp/dialog.patchomator.XXXXX)
 #patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
 
 # "realpath" doesn't exist on Monterey. 
@@ -115,32 +126,7 @@ RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
 
-# SwiftDialog off by default
-useswiftdialog=false
-
-# Set SwiftDialog Options. Quote your strings. Don't escape line breaks.
-dialogListConfigurationOptions=(
-		--title "Patchomator"
-		--message "Updating your apps..."
-		--commandfile "$dialogCommandFile"
-		--ontop
-		--moveable
-		--button1disabled
-		--height 550
-		--width 1000
-		--icon "https://raw.githubusercontent.com/Mac-Nerd/patchomator/57beded0b7c9e131e1ce488ca7a87d67bc050a43/images/patch-o-mater-icon.png"
-)
-
-dialogWriteConfigurationOptions=(
-		--title "Patchomator"
-		--message "Please wait while we find apps that need updating..."
-		--commandfile "$dialogCommandFile"
-		--ontop
-		--moveable
-		--mini
-		--progress
-		--icon "https://raw.githubusercontent.com/Mac-Nerd/patchomator/57beded0b7c9e131e1ce488ca7a87d67bc050a43/images/patch-o-mater-icon.png"
-)
+skipDiscovery=false
 
 #######################################
 # Functions
@@ -156,9 +142,10 @@ usage() {
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
+	echo "\t${BOLD}-s | --skipverify \t${RESET} Skips the signature verification step for discovered apps. ${BOLD}Does not skip verifying on installation.${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
-	echo "\t${BOLD}-d | --swiftdialog \t${RESET} Create a SwiftDialog list to show progress to end user.${BOLD}Cannot be used at the login window, requires an active user.${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
+	echo "\t${BOLD}--options \"Installomator options\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
 	exit 0
@@ -192,9 +179,6 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n"
-	completeSwiftDialogWrite
-	touch "$dialogCommandFile"
-	completeSwiftDialogList
 	exit 1
 }
 
@@ -235,13 +219,36 @@ checkInstallomator() {
 	# check for existence of Installomator to enable installation of updates
 	notice "Checking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
+	InstalledVersion="$($InstallomatorPATH version)"
+	LatestVersion="$(versionFromGit Installomator Installomator)"
+
+	notice "Latest Version: $LatestVersion - Installed Version: $InstalledVersion"
+	
+	if [[ "$InstalledVersion" -ne "$LatestVersion" ]]
+	then
+		error "Installomator was found, but is out of date. You can update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
+
+		if [[ ${#noninteractive} -eq 1 ]]
+		then
+			notice "Running in non-interactive mode. Skipping Installomator update."
+		else
+			OfferToInstall
+		fi
+	fi
+
 	if ! [[ -f $InstallomatorPATH ]]
 	then
 		error "Installomator was not found at ${YELLOW}$InstallomatorPATH ${RESET}"
 	
 		LatestInstallomator=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
 
-		OfferToInstall
+		if [[ ${#noninteractive} -eq 1 ]]
+		then
+			notice "Running in non-interactive mode. Skipping Installomator install."
+		else
+			OfferToInstall
+		fi
+		
 		
 	else
 		if [ $($InstallomatorPATH version | cut -d . -f 1) -lt 10 ]
@@ -260,7 +267,8 @@ OfferToInstall() {
 	then
 		echo -n "Patchomator can still discover apps on the system and create a configuration for later use, but will not be able to install or update anything without Installomator. \
 		\n${BOLD}Download and install Installomator now? ${YELLOW}[y/N]${RESET} "
-		[[ ${#noninteractive} -eq 1 ]] || read DownloadFromGithub
+			
+		read DownloadFromGithub
 
 		if [[ $DownloadFromGithub =~ '[Yy]' ]]
 		then
@@ -268,15 +276,16 @@ OfferToInstall() {
 		else
 			echo "${BOLD}Continuing without Installomator.${RESET}"
 			# disable installs
-			installmode=false
+			if [[ $installmode ]]
+			then
+				fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
+				\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
+			fi
 		fi
 	else
-		echo "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
+		fatal "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
 		\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
-		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with sudo or without ${YELLOW}--install${RESET}"
-
-		exit 0
-
+		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with ${YELLOW}sudo${RESET} or without ${YELLOW}--install${RESET}"
 	fi
 }
 
@@ -369,9 +378,6 @@ downloadLatestLabels() {
 # --install
 doInstallations() {
 	
-	InstallomatorOptions=$InstallomatorOptions[-1]
-
-	
 
 	# No sleeping
 	/usr/bin/caffeinate -d -i -m -u &
@@ -380,28 +386,17 @@ doInstallations() {
 	# Count errors
 	errorCount=0
 
-	# Create our main "list" swiftDialog Window
-	swiftDialogListWindow
+	# convert InstallomatorOptions array to string
+	InstallomatorOptionsString=""
+
+	for key value in ${(kv)InstallomatorOptions}; do
+		InstallomatorOptionsString+=" $key=\"$value\""
+	done
 
 	for label in $queuedLabelsArray
 	do
 		echo "Installing ${label}..."
-
-		# Use built in SwiftDialog Installomator integration options (if swift dialog is being used)
-		swiftDialogOptions=()
-		if $useswiftdialog
-		then
-			swiftDialogOptions+=(DIALOG_CMD_FILE="\"${dialogCommandFile}\"")
-
-			# Get the "name=" value from the current label and use it in our SwiftDialog list
-			currentDisplayName=$(sed -n '/# label descriptions/,$p' ${InstallomatorPATH} | grep -i -A 50 "${label})" | grep -m 1 "name=" | sed 's/.*=//' | sed 's/"//g')
-			# There are some weird \' shenanigans here because Installomator passes this through eval
-			swiftDialogOptions+=(DIALOG_LIST_ITEM_NAME=\'"${currentDisplayName}"\')
-			sleep .5
-		fi
-
-		# Run Installomator
-		${InstallomatorPATH} ${label} ${InstallomatorOptions} ${swiftDialogOptions[@]}
+		${InstallomatorPATH} ${label} ${InstallomatorOptionsString}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
 			let errorCount++
@@ -410,123 +405,45 @@ doInstallations() {
 
 	echo "Errors: $errorCount"
 
-	# Close swiftdialog and delete tmp file
-	completeSwiftDialogList
-
 	caffexit $errorCount
 
 }
 
-checkSwiftDialog(){
-	if [ ! -e "/usr/local/bin/dialog" ] || [ ! -e "/Library/Application Support/Dialog/Dialog.app" ]
-	then
-		echo "SwiftDialog is not installed. Using Installomator to install it now."
-		${InstallomatorPATH} swiftdialog ${InstallomatorOptions} INSTALL=force
-	fi
-}
 
-swiftDialogCommand(){
-	if $useswiftdialog
-	then	
-		echo "$@" > "$dialogCommandFile"
-		sleep .2
-	fi
-}
-
-swiftDialogListWindow(){
-# If we are using SwiftDialog
-	if $useswiftdialog
-	then
-		# Check if there's a valid logged in user:
-		currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
-		if [ "$currentUser" = "root" ] \
-			|| [ "$currentUser" = "loginwindow" ] \
-			|| [ "$currentUser" = "_mbsetupuser" ] \
-			|| [ -z "$currentUser" ] 
-		then
-			return 0
-		fi
-		# Install SwiftDialog if its not already there
-		checkSwiftDialog
-
-		# Build our list of Display Names for SwiftDialog list
-		for label in $queuedLabelsArray
-		do
-			# Get the "name=" value from the current label and use it in our SwiftDialog list
-			currentDisplayName=$(sed -n '/# label descriptions/,$p' ${InstallomatorPATH} | grep -i -A 50 "${label})" | grep -m 1 "name=" | sed 's/.*=//' | sed 's/"//g')
-			if [ -n "$currentDisplayName" ]
-			then
-				displayNames+=("--listitem")
-				displayNames+=(${currentDisplayName})
-			fi
-		done
-		touch "$dialogCommandFile"
-		# Create our running swiftDialog window
-		$dialogPATH \
-		${dialogListConfigurationOptions[@]} \
-		${displayNames[@]} \
-		&
-	fi
-}
-
-completeSwiftDialogList(){
-	if $swiftDialog
-	then
-		swiftDialogCommand "listitem: add, title: Updates Complete!,status: success"
-		sleep 1
-		# Activate button 1
-		swiftDialogCommand "button1: enabled"
-	fi
-	# Delete the tmp command file
-	rm "$dialogCommandFile"
-}
-
-swiftDialogWriteWindow(){
-# If we are using SwiftDialog
-	checkSwiftDialog
-	touch "$dialogCommandFile"
-	if $useswiftdialog
-	then
-		$dialogPATH \
-		${dialogWriteConfigurationOptions[@]} \
-		&
-	fi
-}
-
-completeSwiftDialogWrite(){
-	if $useswiftdialog
-	then
-		swiftDialogCommand "quit:"
-		rm "$dialogCommandFile"
-	fi
+### 1.1 
+# discover installed apps
+# add labels to found apps list 
+# do version check of found apps
 
 
-}
-
-PgetAppVersion() {
-	# renamed to avoid conflicts with Installomator version of the same function name.
-	# pkgs contains a version number, then we don't have to search for an app
-	if [[ $packageID != "" ]]; then
-		
-		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
-		
-		if [[ $appversion != "" ]]; then
-			notice "Label: $label_name"
-			notice "--- found packageID $packageID installed"
-			
-			InstalledLabelsArray+=( "$label_name" )
-			
-			return
-		fi
-	fi
+FindAppFromLabel() {
+# appname label_name packageID
 
 	if [ -z "$appName" ]; then
 		# when not given derive from name
 		appName="$name.app"
 	fi
+
+	# shortcut: pkgs contains a version number, if it's installed then we don't have to parse the plist. 
+	# still need to confirm it's installed, tho. Receipts can be unreliable.
+	if [[ "$packageID" != "" ]]
+	then
+		notice "Searching system for $packageID"
+		
+		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
+		
+		if [[ $appversion != "" ]]; then
+			notice "Label: $labelFile"
+			notice "--- found packageID $packageID installed"
+			InstalledLabelsArray+=( "$labelFile" )
+		fi
+	else 
+		appversion=""
+		notice "Searching system for $appName"
+	fi
+
 	
 	# get app in /Applications, or /Applications/Utilities, or find using Spotlight
-	notice "Searching system for $appName"
 	
 	if [[ -d "/Applications/$appName" ]]; then
 		applist="/Applications/$appName"
@@ -540,14 +457,16 @@ PgetAppVersion() {
 	
 	appPathArray=( ${(0)applist} )
 
-	if [[ ${#appPathArray} -gt 0 ]]; then
+	if [[ ${#appPathArray} -gt 0 ]]
+	then
 		
 		filteredAppPaths=( ${(M)appPathArray:#${targetDir}*} )
 
-		if [[ ${#filteredAppPaths} -eq 1 ]]; then
+		if [[ ${#filteredAppPaths} -eq 1 ]]
+		then
 			installedAppPath=$filteredAppPaths[1]
 			
-			appversion=$(defaults read $installedAppPath/Contents/Info.plist $versionKey) #Not dependant on Spotlight indexing
+			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey")
 
 			infoOut "Found $appName version $appversion"
 
@@ -555,46 +474,59 @@ PgetAppVersion() {
 			notice "--- found app at $installedAppPath"
 						
 			# Is current app from App Store
-			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]]
+			# AND is IGNORE_APP_STORE_APPS=yes?
+
+			if [[ -d "$installedAppPath"/Contents/_MASReceipt ]] && [[ $InstallomatorOptions[IGNORE_APP_STORE_APPS] =~ [YyEeSs1] ]]
 			then
-				notice "--- $appName is from App Store. Skipping."
-				return
-			# Check disambiguation?
+				notice "$appName is from App Store. Ignoring."
+				notice "Use the Installomator option \"IGNORE_APP_STORE_APPS=no\" to replace."
 			
 			else
-				verifyApp $installedAppPath
+#				verifyApp $installedAppPath
+#				echo "$installedAppPath == $label_name"
+				foundLabelsArray[$label_name]="$installedAppPath"
+				
 			fi
 		fi
 
 	fi
 
-
 }
 
+
 verifyApp() {
-
 	appPath=$1
-    notice "Verifying: $appPath"
 
-    # verify with spctl
-    appVerify=$(spctl -a -vv "$appPath" 2>&1 )
-    appVerifyStatus=$(echo $?)
-    teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
+	if [[ -n "$configArray[$appPath]" ]]
+	then
+		infoOut "$appPath already verified."
+	else
+		if [[ $skipVerify == false ]]
+		then
+		
+			infoOut "Verifying: $appPath"
 
-    if [[ $appVerifyStatus -ne 0 ]]
-    then
-        error "Error verifying $appPath"
-        return
-    fi
+			# verify with spctl
+			appVerify=$(spctl -a -vv "$appPath" 2>&1 )
+			appVerifyStatus=$(echo $?)
+			teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
 
-    if [ "$expectedTeamID" != "$teamID" ]
-    then
-    	error "Error verifying $appPath"
-    	notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
-        return
-    else
+			if [[ $appVerifyStatus -ne 0 ]]
+			then
+				error "Error verifying $appPath: Returned $appVerifyStatus"
+				return
+			fi
 
-# run the commands in current_label to check for the new version string
+			if [ "$expectedTeamID" != "$teamID" ]
+			then
+				error "Error verifying $appPath"
+				notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
+				return
+			fi
+
+		fi
+		notice "Checking: $appPath"
+	# run the commands in current_label to check for the new version string
 		newversion=$(zsh << SCRIPT_EOF
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 currentUser=$currentUser
@@ -602,9 +534,9 @@ source "$fragmentsPATH/functions.sh"
 ${current_label}
 echo "\$appNewVersion" 
 SCRIPT_EOF
-)
-	fi
+		)
 
+	fi
 # build array of labels for the config and/or installation
 
 # push label to array
@@ -631,6 +563,9 @@ SCRIPT_EOF
 				then
 					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${label_name}" "$configfile"
 				fi
+				# Remove duplicate label already in queue:
+				labelsArray=$(echo "$labelsArray" | sed s/"$label_name "//)
+				
 			else
 				echo "\t${BOLD}Skipping.${RESET}"
 				return
@@ -657,6 +592,8 @@ SCRIPT_EOF
 
 }
 
+
+
 # --install
 queueLabel() {
 
@@ -666,7 +603,7 @@ queueLabel() {
 	if [[ $installmode ]]
 	then
 		labelsArray+="$label_name "
-		echo "$labelsArray"
+#		echo "$labelsArray"
 	fi
 		
 }
@@ -678,21 +615,23 @@ queueLabel() {
 
 # Command line options
 
+#zparseopts -D -E -F -K -- \
 zparseopts -D -E -F -K -- \
 -help+=showhelp h+=showhelp \
 -install=installmode I=installmode \
--swiftdialog=useswiftdialog d=useswiftdialog \
 -quiet=quietmode q=quietmode \
 -yes=noninteractive y=noninteractive \
 -verbose=verbose v=verbose \
 -read=readconfig r=readconfig \
 -write=writeconfig w=writeconfig \
 -config:=configfile c:=configfile \
+-skipverify=skipVerify s=skipVerify \
 -pathtoinstallomator:=InstallomatorPATH p:=InstallomatorPATH \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
 -mdm:=MDMName \
--options:=InstallomatorOptions
+-options:=CLIOptions \
+|| fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
 # -I --install
@@ -701,6 +640,7 @@ zparseopts -D -E -F -K -- \
 # -v --verbose
 # -r --read
 # -w --write
+# -s --skip-verify
 # -c / --config <config file path>
 # -p / --pathtoinstallomator <installomator path>
 # New in 1.1
@@ -733,31 +673,54 @@ MDMName=$MDMName[-1] #[one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, ot
 # --quiet
 # --yes
 
+
+
+### Default Installomator Options:
+
+InstallomatorOptions=(\
+[NOTIFY]=success \
+[PROMPT_TIMEOUT]=86400 \
+[BLOCKING_PROCESS_ACTION]=tell_user \
+[LOGO]=appstore \
+[IGNORE_APP_STORE_APPS]="no" \
+[SYSTEMOWNER]=0 \
+[REOPEN]="yes" \
+[INTERRUPT_DND]="yes" \
+[NOTIFY_DIALOG]=1 \
+[LOGGING]="INFO" \
+)
+
+# Parse command line --options
+OptionsString=$CLIOptions[-1]
+# split on spaces, then on =
+AddOptions=$(echo "$OptionsString" | awk -v OFS="\n" '{$1=$1}1' | awk -v FS="=" '{print "InstallomatorOptions+=\(["$1"]="$2"\)"}')
+
+# Add them to the InstallomatorOptions array
+eval "$AddOptions"
+
+# Additional optional settings by MDM
 if [ "$MDMName" ]
 then
 	quietmode[1]=true
-	installmode=true
+#	installmode=true
 	noninteractive[1]=true
 fi
-
 
 if [ "$MDMName" ]
 then
 	# set logos for known MDM vendors
 	if [ "$MDMName" != "other" ]
 	then
-		InstallomatorOptions+=" LOGO=$MDMName"
+		InstallomatorOptions[LOGO]="$MDMName"
 	fi
-
-	# Options for typical MDM operation
-
-	InstallomatorOptions+=" "
-
 fi
-infoOut "Installomator Options: $InstallomatorOptions"
 
+notice "Option Count ${#InstallomatorOptions[@]}"
+notice "Installomator Options:"
 
-
+for key value in ${(kv)InstallomatorOptions}; do
+    notice " - $key=\"$value\""
+done
 
 # ReadConfig mode - read existing plist and display in pretty columns
 # skips discovery and all the rest
@@ -780,7 +743,22 @@ fi
 # can't do discovery without the labels files.
 checkLabels
 
+# MOAR Functions! miscellaneous pieces referenced in the occasional label
+# Needs to confirm that labels exist first.
+source "$fragmentsPATH/functions.sh"
 
+# can't install without the 'mator
+# can't check version without the functions. 
+checkInstallomator	
+
+
+# speed up the discovery phase.
+if [[ ${#skipVerify} -eq 1 ]]
+then
+	skipVerify=true
+else
+	skipVerify=false
+fi
 
 
 # --install
@@ -794,22 +772,12 @@ fi
 if [[ $installmode ]]
 then
 
-	# can't install without the 'mator
-	checkInstallomator	
-
 	# Check your privilege
 	if ! $IAMROOT
 	then
 		fatal "Install mode must be run with root/sudo privileges. Re-run Patchomator with\n\t ${YELLOW}sudo zsh patchomator.sh --install${RESET}"
 	fi
 	
-fi
-
-# --swiftdialog
-# if --swiftdialog argument is passed, then swiftdialog will be used
-if [[ ${#useswiftdialog} -eq 1 ]]
-then
-	useswiftdialog=true
 fi
 
 # discovery mode
@@ -820,7 +788,7 @@ fi
 if [[ -n "$requiredLabels" ]]
 then
 	
-	requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")	
+	requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")
 	notice "Required labels: $requiredLabelsArray"
 
 	for requiredLabel in $requiredLabelsArray
@@ -836,6 +804,7 @@ then
 
 			if [[ $installmode ]]
 			then
+				label_name=$requiredLabel
 				queueLabel # add to installer queue
 			fi
 		else
@@ -851,24 +820,34 @@ if [[ -n "$ignoredLabels" ]]
 then
 
 	ignoredLabelsArray=("${(@s/ /)ignoredLabels[-1]}")	
-	notice "[CLI] Ignoring labels: $ignoredLabelsArray"
 
-	for ignoredLabel in $ignoredLabelsArray
-	do
-		if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
-		then
-#			notice "Skipping ${ignoredLabel}."
-		
-			if [[ ${#writeconfig} -eq 1 ]]
+	if [[ "$(echo $ignoredLabelsArray | tr '[:upper:]' '[:lower:]')" == "all" ]] # ALL All all aLl etc.
+	then
+	
+		notice "[CLI] Ignored=all. Skipping discovery."
+		skipDiscovery=true
+	
+	else
+		notice "[CLI] Ignoring labels: $ignoredLabelsArray"
+
+		for ignoredLabel in $ignoredLabelsArray
+		do
+			if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
 			then
-				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
-			fi
+	#			notice "Skipping ${ignoredLabel}."
+		
+				if [[ ${#writeconfig} -eq 1 ]]
+				then
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
+				fi
 					
-		else
-			error "No such label ${ignoredLabel}"
-		fi
+			else
+				error "No such label ${ignoredLabel}"
+			fi
 
-	done
+		done
+	fi
+
 fi
 
 
@@ -877,17 +856,17 @@ fi
 # if a config exists, use it
 notice "Checking for configuration at ${YELLOW}$configfile ${RESET}"
 
+# DISCOVERY PHASE
+
+declare -A foundLabelsArray=()
+
 if [[ ! -f $configfile ]] || [[ ${#writeconfig} -eq 1 ]]
 then
-	notice "No config file at $configfile. Running discovery."
-	# Call the bouncing progress SwiftDialog window
-	swiftDialogWriteWindow
 
 	# Write Config mode
 	# --write
 	if [[ ${#writeconfig} -eq 1 ]]
 	then
-
 		notice "Writing Config"
 
 		if [[ -d $configfile ]] # common mistake, select a directory, not a filename
@@ -903,27 +882,28 @@ then
 				if [[ -w "$(dirname $configfile)" ]]
 				#directory is writable
 				then
-					infoOut "No config file at $configfile. Creating one now."
+					infoOut "No existing config file at $configfile. Creating one now."
 					# creates a blank plist
 #					touch "$configfile"
 					plutil -create xml1 "$configfile" 
+
 				else
 					# exists, but not writable
 					fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 				fi
 			else
 			# directory doesn't exist
-				infoOut "No config file at $configfile. Creating one now."
+				infoOut "No existing config file at $configfile. Creating one now."
 				makepath "$configfile"
 				# creates a blank plist
-				plutil -create xml1 "$configfile"  || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				plutil -create xml1 "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi
 
 		else # file exists
 
 			if [[ -w $configfile ]]
 			then 
-				echo "\t${BOLD}Refreshing $configfile ${RESET}"
+				infoOut "Refreshing $configfile"
 			else
 				fatal "$configfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi	
@@ -933,7 +913,7 @@ then
 		/usr/libexec/PlistBuddy -c "clear dict" "${configfile}"
 		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configfile}"	
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
-		
+
 	fi
 
 	# get current user
@@ -960,18 +940,17 @@ then
 	in_label=0
 	current_label=""
 
-	# MOAR Functions! miscellaneous pieces referenced in the occasional label
-	# Needs to confirm that labels exist first.
-	source "$fragmentsPATH/functions.sh"
+	### MAIN EVENT
 
 	# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
+	# get app name, label name, packageID
 
 	for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
 
 		labelFile=$(basename -- "$labelFragment")
 		labelFile="${labelFile%.*}"
 	
-		if [[ $ignoredLabelsArray =~ ${labelFile} ]]
+		if [[ $ignoredLabelsArray =~ ${labelFile} ]] || [[ $skipDiscovery == true ]]
 		then
 			notice "Ignoring label $labelFile."
 			continue # we're done here. Move along.
@@ -979,6 +958,7 @@ then
 	
 		infoOut "Processing label $labelFile."
 
+		# Run the label as a sub-script
 		exec 3< "${labelFragment}"
 
 		while read -r -u 3 line; do 
@@ -989,30 +969,28 @@ then
 			if [ -n $scrubbedLine ]; then
 
 				if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
-				   label_name=${match[1]}
+				   label_name="$labelFile" #${match[1]}
 				   in_label=1
 				   continue # skips to the next iteration
 				fi
 
 				if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
 					# label complete. A valid label includes a Team ID. If we have one, we can check for installed
-					[[ -n $expectedTeamID ]] && PgetAppVersion
+					[[ -n $expectedTeamID ]] && FindAppFromLabel
 
 					in_label=0
 					packageID=""
 					name=""
 					appName=""
-					expectedTeamID=""
 					current_label=""
-					appNewVersion=""
 
 					continue # skips to the next iteration
 				fi
 
 				if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
-			# add the label lines to create a "subscript" to check versions and whatnot
-			# if empty, add the first line. Otherwise, you'll get a null line
-					[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
+					# add the label lines to create a "subscript" to check versions and whatnot
+					# if empty, add the first line. Otherwise, you'll get a null line
+					# [[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
 
 					case $scrubbedLine in
 
@@ -1025,9 +1003,6 @@ then
 			fi
 		done
 	done
-
-	# Close our bouncing progress swiftDialog window
-	completeSwiftDialogWrite
 	
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
@@ -1062,8 +1037,65 @@ else
 	
 fi	
 # end discovery	
+
+
+
+# for each app found, check version and verify
+for foundLabel appPath in ${(kv)foundLabelsArray};
+do
+
+	# echo "$foundLabel == $appPath"
+	labelFragment="${fragmentsPATH}/labels/${foundLabel}.sh"
 	
+	# read the label as a sub-script
+	exec 3< "${labelFragment}"
+
+	while read -r -u 3 line; do 
+
+		# strip spaces and tabs 
+		scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
 	
+		if [ -n $scrubbedLine ]; then
+
+			if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
+			   label_name=${match[1]}
+			   in_label=1
+			   continue # skips to the next iteration
+			fi
+
+			if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
+				# label complete. A valid label includes a Team ID. If we have one, we can check for installed
+				[[ -n $expectedTeamID ]] && verifyApp "$appPath"
+
+				in_label=0
+				packageID=""
+				name=""
+				appName=""
+				expectedTeamID=""
+				current_label=""
+				appNewVersion=""
+
+				continue # skips to the next iteration
+			fi
+
+			if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
+		# add the label lines to create a "subscript" to check versions and whatnot
+		# if empty, add the first line. Otherwise, you'll get a null line
+				[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
+
+				case $scrubbedLine in
+
+				  'name='*|'packageID'*|'expectedTeamID'*)
+					  eval "$scrubbedLine"
+				  ;;
+
+				esac
+			fi
+		fi
+	done
+done
+
+
 # install mode. Requires root and Installomator, checks for existing config. 
 # --install
 
@@ -1073,10 +1105,11 @@ then
 	IFS=' '
 
 	queuedLabelsArray=("${(@s/ /)labelsArray}")	
+	numLabels=$((${#queuedLabelsArray[@]} - 1))
 
-	if [[ ${#queuedLabelsArray[@]} > 0 ]]
+	if [[ $numLabels > 0 ]]
 	then
-		infoOut "Passing ${#queuedLabelsArray[@]} labels to Installomator: $queuedLabelsArray"
+		infoOut "Passing $numLabels labels to Installomator: $queuedLabelsArray"
 		doInstallations
 	else
 		infoOut "All apps up to date. Nothing to do." # inbox zero
