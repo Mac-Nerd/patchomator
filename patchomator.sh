@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.11.07 - 1.0.9
-# ""
+# Version: 2023.11.13 - 1.0.9
+# "Don't be greedy"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -15,7 +15,7 @@
 
 
 # To Fix: 
-
+# required/ignored labels regex too greedy
 
 # To Do:
 # [speed] Defer verification step until discovery is complete. Parallelize as much as possible.
@@ -144,7 +144,7 @@ usage() {
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
-	echo "\t${BOLD}--options \"Installomator options\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
+	echo "\t${BOLD}--options \"option1=value, option2=value, ...\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
 	exit 0
@@ -198,13 +198,13 @@ displayConfig() {
 		done
 		
 		echo "\n${BOLD}Ignored Labels:${RESET}"
-		for ignoredItem in $ignoredLabelsArray
+		for ignoredItem in $ignoredLabelsList
 		do
 			echo $ignoredItem
 		done
 		
 		echo "\n${BOLD}Required Labels:${RESET}"
-		for requiredItem in $requiredLabelsArray
+		for requiredItem in $requiredLabelsList
 		do
 			echo $requiredItem
 		done
@@ -752,11 +752,13 @@ fi
 # --required
 if [[ -n "$requiredLabels" ]]
 then
-	
-	requiredLabelsArray=("${(@s/ /)requiredLabels[-1]}")
-	notice "Required labels: $requiredLabelsArray"
 
-	for requiredLabel in $requiredLabelsArray
+	declare -A requiredLabelsArray=()
+	
+	requiredLabelsList=("${(@s/ /)requiredLabels[-1]}")
+	notice "Required labels: $requiredLabelsList"
+
+	for requiredLabel in $requiredLabelsList
 	do
 		if [[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]]
 		then
@@ -772,6 +774,8 @@ then
 				label_name=$requiredLabel
 				queueLabel # add to installer queue
 			fi
+			requiredLabelsArray[$requiredLabel]=1
+
 		else
 			error "No such label ${requiredLabel}"
 		fi
@@ -784,18 +788,20 @@ fi
 if [[ -n "$ignoredLabels" ]]
 then
 
-	ignoredLabelsArray=("${(@s/ /)ignoredLabels[-1]}")	
+	declare -A ignoredLabelsArray=()
+	
+	ignoredLabelsList=("${(@s/ /)ignoredLabels[-1]}")	
 
-	if [[ "$(echo $ignoredLabelsArray | tr '[:upper:]' '[:lower:]')" == "all" ]] # ALL All all aLl etc.
+	if [[ "$(echo $ignoredLabelsList | tr '[:upper:]' '[:lower:]')" == "all" ]] # ALL All all aLl etc.
 	then
 	
 		notice "[CLI] Ignored=all. Skipping discovery."
 		skipDiscovery=true
 	
 	else
-		notice "[CLI] Ignoring labels: $ignoredLabelsArray"
+		notice "[CLI] Ignoring labels: $ignoredLabelsList"
 
-		for ignoredLabel in $ignoredLabelsArray
+		for ignoredLabel in $ignoredLabelsList
 		do
 			if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
 			then
@@ -805,6 +811,8 @@ then
 				then
 					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
 				fi
+				
+				ignoredLabelsArray[$ignoredLabel]=1
 					
 			else
 				error "No such label ${ignoredLabel}"
@@ -902,13 +910,13 @@ then
 	current_label=""
 
 	# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
-
+	
 	for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
 
 		labelFile=$(basename -- "$labelFragment")
-		labelFile="${labelFile%.*}"
-	
-		if [[ $ignoredLabelsArray =~ ${labelFile} ]] || [[ $skipDiscovery == true ]]
+		labelFile=${labelFile%.*}
+
+		if [[ $ignoredLabelsArray[$labelFile] ]] || [[ $skipDiscovery == true ]]
 		then
 			notice "Ignoring label $labelFile."
 			continue # we're done here. Move along.
@@ -973,25 +981,25 @@ else
 	
 	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
 	
-	ignoredLabelsArray+=($ignoredLabelsFromConfig)
-	requiredLabelsArray+=($requiredLabelsFromConfig)
+	ignoredLabelsList+=($ignoredLabelsFromConfig)
+	requiredLabelsList+=($requiredLabelsFromConfig)
 
 	labelsArray+=($labelsFromConfig $requiredLabels $requiredLabelsFromConfig)
 	
 # 	# deduplicate ignored labels
-	ignoredLabelsArray=($(tr ' ' '\n' <<< "${ignoredLabelsArray[@]}" | sort -u | tr '\n' ' '))
+	ignoredLabelsList=($(tr ' ' '\n' <<< "${ignoredLabelsList[@]}" | sort -u | tr '\n' ' '))
 
 # 	# deduplicate required labels
-	requiredLabelsArray=($(tr ' ' '\n' <<< "${requiredLabelsArray[@]}" | sort -u | tr '\n' ' '))
+	requiredLabelsList=($(tr ' ' '\n' <<< "${requiredLabelsList[@]}" | sort -u | tr '\n' ' '))
 
 # 	# deduplicate labels list
 	labelsArray=($(tr ' ' '\n' <<< "${labelsArray[@]}" | sort -u | tr '\n' ' '))
 
-	labelsArray=${labelsArray:|ignoredLabelsArray}
+	labelsArray=${labelsArray:|ignoredLabelsList}
 
 	notice "Labels to install: $labelsArray"
-	notice "Ignoring labels: $ignoredLabelsArray"
-	notice "Required labels: $requiredLabelsArray"
+	notice "Ignoring labels: $ignoredLabelsList"
+	notice "Required labels: $requiredLabelsList"
 	
 	
 fi	
