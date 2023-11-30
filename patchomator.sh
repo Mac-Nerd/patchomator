@@ -18,9 +18,9 @@
 
 
 # To Do:
-# [1.1] Add MDM deployed Non-interactive Mode --mdm "MDMName"
-# [1.1] Swift Dialog support
-
+# 1.1 Add MDM deployed Non-interactive Mode --mdm "MDMName"
+# 1.1 Swift Dialog support
+# 1.1 Ignored labels from CLI into preferences on --write
 
 # Changed:
 # [speed] --skip-verify to skip the step of verifying discovered apps. Does *not* skip the verification on install. 
@@ -139,6 +139,10 @@ usage() {
 	echo "\tpatchomator.sh [ -ryqvIh  -c configfile  -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels."
+	
+	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\""
+	echo "\t${BOLD}--required \"space-separated list of labels to require\""
+	
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
 	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location."
@@ -956,65 +960,72 @@ then
 	# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
 	# get app name, label name, packageID
 
-	for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
 
-		labelFile=$(basename -- "$labelFragment")
-		labelFile=${labelFile%.*}
+	if [[ $skipDiscovery != true ]]
+	then
+		for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
+
+			labelFile=$(basename -- "$labelFragment")
+			labelFile=${labelFile%.*}
 	
-		if [[ $ignoredLabelsArray[$labelFile] ]] || [[ $skipDiscovery == true ]]
-		then
-			notice "Ignoring label $labelFile."
-			continue # we're done here. Move along.
-		fi
-	
-		infoOut "Processing label $labelFile."
-
-		# Run the label as a sub-script
-		exec 3< "${labelFragment}"
-
-		while read -r -u 3 line; do 
-
-			# strip spaces and tabs 
-			scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
-		
-			if [ -n $scrubbedLine ]; then
-
-				if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
-				   label_name="$labelFile" #${match[1]}
-				   in_label=1
-				   continue # skips to the next iteration
-				fi
-
-				if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
-					# label complete. A valid label includes a Team ID. If we have one, we can check for installed
-					[[ -n $expectedTeamID ]] && FindAppFromLabel
-
-					in_label=0
-					packageID=""
-					name=""
-					appName=""
-					current_label=""
-
-					continue # skips to the next iteration
-				fi
-
-				if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
-					# add the label lines to create a "subscript" to check versions and whatnot
-					# if empty, add the first line. Otherwise, you'll get a null line
-					# [[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
-
-					case $scrubbedLine in
-
-					  'name='*|'packageID'*|'expectedTeamID'*)
-						  eval "$scrubbedLine"
-					  ;;
-
-					esac
+			if [[ ${#ignoredLabelsArray} -gt 0 ]] 
+			then			
+				if [[ $ignoredLabelsArray[$labelFile] -eq 1 ]]
+				then
+					notice "Ignoring label $labelFile."
+					continue # we're done here. Move along.
 				fi
 			fi
+			
+			infoOut "Processing label $labelFile."
+
+			# Run the label as a sub-script
+			exec 3< "${labelFragment}"
+
+			while read -r -u 3 line; do 
+
+				# strip spaces and tabs, delete commented lines starting with #
+				scrubbedLine="$(echo $line | sed -E -e 's/^( |\t)*//g' -e 's/^\s*#.*$//')"
+		
+				if [ -n $scrubbedLine ]; then
+
+					if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
+					   label_name="$labelFile" #${match[1]}
+					   in_label=1
+					   continue # skips to the next iteration
+					fi
+
+					if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
+						# label complete. A valid label includes a Team ID. If we have one, we can check for installed
+						[[ -n $expectedTeamID ]] && FindAppFromLabel
+
+						in_label=0
+						packageID=""
+						name=""
+						appName=""
+						current_label=""
+
+						continue # skips to the next iteration
+					fi
+
+					if [[ $in_label -eq 1 ]]; then
+						# add the label lines to create a "subscript" to check versions and whatnot
+						# if empty, add the first line. Otherwise, you'll get a null line
+						# [[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
+
+						case $scrubbedLine in
+
+						  'name='*|'packageID'*|'expectedTeamID'*)
+							  eval "$scrubbedLine"
+						  ;;
+
+						esac
+					fi
+				fi
+			done
+
 		done
-	done
-	
+	fi
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $configfile."
@@ -1064,10 +1075,10 @@ do
 	while read -r -u 3 line; do 
 
 		# strip spaces and tabs 
-		scrubbedLine="$(echo $line | sed -E 's/^( |\t)*//g')"
+		scrubbedLine="$(echo $line | sed -E -e 's/^( |\t)*//g' -e 's/^\s*#.*$//')"
 	
-		if [ -n $scrubbedLine ]; then
-
+		if [[ -n $scrubbedLine ]]; then
+		
 			if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
 			   label_name=${match[1]}
 			   in_label=1
@@ -1089,9 +1100,7 @@ do
 				continue # skips to the next iteration
 			fi
 
-			if [[ $in_label -eq 1 && ! "$scrubbedLine" =~ $comment_re ]]; then
-		# add the label lines to create a "subscript" to check versions and whatnot
-		# if empty, add the first line. Otherwise, you'll get a null line
+			if [[ $in_label -eq 1 ]]; then
 				[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
 
 				case $scrubbedLine in
