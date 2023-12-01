@@ -22,7 +22,7 @@
 # 1.1 Swift Dialog support
 # 1.1 Ignored labels from CLI into preferences on --write
 
-# Changed:
+# Changed/Fixed:
 # [speed] --skip-verify to skip the step of verifying discovered apps. Does *not* skip the verification on install. 
 # [speed] Defer verification step until discovery is complete. Parallelize as much as possible.
 # Offers to install Installomator update, but requires user intervention.
@@ -105,6 +105,11 @@ declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
 
 declare -A InstallomatorOptions=()
+
+declare -A foundLabelsArray=()
+declare -A ignoredLabelsArray=()
+declare -A requiredLabelsArray=()
+
 
 
 # default paths
@@ -425,6 +430,8 @@ doInstallations() {
 
 FindAppFromLabel() {
 # appname label_name packageID
+	label_name=$1
+	appversion=""
 
 	if [ -z "$appName" ]; then
 		# when not given derive from name
@@ -439,13 +446,12 @@ FindAppFromLabel() {
 		
 		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
 		
-		if [[ $appversion != "" ]]; then
-			notice "Label: $labelFile"
-			notice "--- found packageID $packageID installed"
-			InstalledLabelsArray+=( "$labelFile" )
+		if [[ -n $appversion ]]; then
+			notice "Label: $label_name"
+			notice "--- found packageID $packageID version $appversion installed"
+			InstalledLabelsArray+=( "$label_name" )
 		fi
 	else 
-		appversion=""
 		notice "Searching system for $appName"
 	fi
 
@@ -489,8 +495,7 @@ FindAppFromLabel() {
 				notice "Use the Installomator option \"IGNORE_APP_STORE_APPS=no\" to replace."
 			
 			else
-#				verifyApp $installedAppPath
-#				echo "$installedAppPath == $label_name"
+
 				foundLabelsArray[$label_name]="$installedAppPath"
 				
 			fi
@@ -502,7 +507,8 @@ FindAppFromLabel() {
 
 
 verifyApp() {
-	appPath=$1
+	foundLabel=$1
+	appPath=$2
 
 	if [[ -n "$configArray[$appPath]" ]]
 	then
@@ -558,7 +564,7 @@ SCRIPT_EOF
 			echo "\t${BOLD}Skipping.${RESET}"
 			return
 		else
-			echo -n "${BOLD}Replace label ${exists} with $label_name? ${YELLOW}[y/N]${RESET} "
+			echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
 			read replaceLabel 
 
 			if [[ $replaceLabel =~ '[Yy]' ]]
@@ -566,26 +572,38 @@ SCRIPT_EOF
 				echo "\t${BOLD}Replacing.${RESET}"
 				configArray[$appPath]=$label_name
 				
+				# Remove duplicate label already in queue:
+				labelsList=$(echo "$labelsList" | sed s/"$exists "//)
+				
+				# add replaced label to Ignored list
+				ignoredLabelsArray[$exists]=1
+
 				if [[ ${#writeconfig} -eq 1 ]]
 				then
-					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${label_name}" "$configfile"
+					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$configfile"
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $configfile
 				fi
-				# Remove duplicate label already in queue:
-				labelsArray=$(echo "$labelsArray" | sed s/"$label_name "//)
-				
+
 			else
 				echo "\t${BOLD}Skipping.${RESET}"
+				# add skipped label to Ignored list
+				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $configfile
+
 				return
 			fi
 		fi					
 	else
-		configArray[$appPath]=$label_name
+		configArray[$appPath]=$foundLabel
 		if [[ ${#writeconfig} -eq 1 ]]
 		then
-			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${label_name}" "$configfile"
+			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$configfile"
 		fi
 	fi
 
+
+	appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
+	[[ -n "$appversion" ]] || appversion=$(defaults read "$appPath/Contents/Info.plist" "$versionKey" 2>/dev/null)
+	
 	notice "--- Installed version: ${appversion}"
 	
 	[[ -n "$newversion" ]] && notice "--- Newest version: ${newversion}"
@@ -609,8 +627,8 @@ queueLabel() {
 	# add to queue if in install mode
 	if [[ $installmode ]]
 	then
-		labelsArray+="$label_name "
-#		echo "$labelsArray"
+		labelsList+="$label_name "
+#		echo "$labelsList"
 	fi
 		
 }
@@ -747,6 +765,91 @@ then
 fi
 
 
+if [[ -f $configfile ]] && [[ ${#writeconfig} -ne 1 ]] 
+then
+	infoOut "Reading existing configuration for ignored/required labels"
+
+	# parse the config for existing ignored/required labels
+	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+	
+	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+
+	for ignoredLabel in $ignoredLabelsFromConfig
+	do
+		if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
+		then
+			ignoredLabelsArray["$ignoredLabel"]=1		
+			notice "Ignoring $ignoredLabel"	   
+		fi
+	done
+	
+	for requiredLabel in $requiredLabelsFromConfig
+	do
+		if [[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]]
+		then
+			requiredLabelsArray["$requiredLabel"]=1			   
+			notice "Requiring $requiredLabel"	   
+		fi
+	done
+	
+fi
+
+
+# Create Config file on --write, or if none already exists
+# --write
+if [[ ${#writeconfig} -eq 1 ]] || ! [[ -f $configfile ]]
+then
+	notice "Writing Config"
+
+	if [[ -d $configfile ]] # common mistake, select a directory, not a filename
+	then
+		fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
+	fi
+
+	if ! [[ -f $configfile ]] # no existing config
+	then
+		if [[ -d "$(dirname $configfile)" ]] 
+		# directory exists
+		then			
+			if [[ -w "$(dirname $configfile)" ]]
+			#directory is writable
+			then
+				infoOut "No existing config file at $configfile. Creating one now."
+
+			else
+				# exists, but not writable
+				fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+			fi
+		else
+		# directory doesn't exist
+			infoOut "No existing config file at $configfile. Creating one now."
+			makepath "$configfile"
+		fi
+		# creates a blank plist
+		plutil -create xml1 "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+
+	else # file exists
+
+		if [[ -w $configfile ]]
+		then 
+			infoOut "Refreshing $configfile"
+			# create blank plist or empty an existing one
+			/usr/libexec/PlistBuddy -c "clear dict" "${configfile}"
+	
+		else
+			fatal "$configfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+		fi	
+	
+	fi
+	
+	# add sections for label arrays
+	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
+
+fi
+# END --write
+
+
 # can't do discovery without the labels files.
 checkLabels
 
@@ -795,8 +898,6 @@ fi
 if [[ -n "$requiredLabels" ]]
 then
 	
-	declare -A requiredLabelsArray=()
-
 	requiredLabelsList=("${(@s/ /)requiredLabels[-1]}")
 	notice "Required labels: $requiredLabelsList"
 
@@ -808,7 +909,7 @@ then
 
 			if [[ ${#writeconfig} -eq 1 ]]
 			then
-				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configfile		
+				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configfile	
 			fi
 
 			if [[ $installmode ]]
@@ -830,9 +931,7 @@ fi
 if [[ -n "$ignoredLabels" ]]
 then
 
-	declare -A ignoredLabelsArray=()
-
-	ignoredLabelsList=("${(@s/ /)ignoredLabels[-1]}")	
+	ignoredLabelsList=("${(@s/ /)ignoredLabels[-1]}")
 
 	if [[ "$(echo $ignoredLabelsList | tr '[:upper:]' '[:lower:]')" == "all" ]] # ALL All all aLl etc.
 	then
@@ -847,11 +946,10 @@ then
 		do
 			if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
 			then
-	#			notice "Skipping ${ignoredLabel}."
 		
 				if [[ ${#writeconfig} -eq 1 ]]
 				then
-					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile		
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile
 				fi
 					
 				ignoredLabelsArray[$ignoredLabel]=1
@@ -867,179 +965,101 @@ fi
 
 
 
-
-# if a config exists, use it
-notice "Checking for configuration at ${YELLOW}$configfile ${RESET}"
-
 # DISCOVERY PHASE
 
-declare -A foundLabelsArray=()
+# get current user
+currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
 
-if [[ ! -f $configfile ]] || [[ ${#writeconfig} -eq 1 ]]
+uid=$(id -u "$currentUser")
+
+notice "Current User: $currentUser (UID $uid)"
+
+# start of label pattern
+label_re='^([a-z0-9\_-]*)(\))$'
+#label_re='^([a-z0-9\_-]*)(\)|\|\\)$' 
+
+# ignore comments
+comment_re='^\#$'
+
+# end of label pattern
+endlabel_re='^;;'
+
+targetDir="/"
+versionKey="CFBundleShortVersionString"
+
+IFS=$'\n'
+in_label=0
+current_label=""
+
+### MAIN EVENT
+
+# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
+# get app name, label name, packageID
+
+
+if [[ $skipDiscovery != true ]]
 then
 
-	# Write Config mode
-	# --write
-	if [[ ${#writeconfig} -eq 1 ]]
-	then
-		notice "Writing Config"
+	for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
 
-		if [[ -d $configfile ]] # common mistake, select a directory, not a filename
-		then
-			fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
-		fi
+		labelFile=$(basename -- "$labelFragment")
+		labelFile=${labelFile%.*}
 
-		if ! [[ -f $configfile ]] # no existing config
-		then
-			if [[ -d "$(dirname $configfile)" ]] 
-			# directory exists
-			then			
-				if [[ -w "$(dirname $configfile)" ]]
-				#directory is writable
-				then
-					infoOut "No existing config file at $configfile. Creating one now."
-					# creates a blank plist
-#					touch "$configfile"
-					plutil -create xml1 "$configfile" 
 
-				else
-					# exists, but not writable
-					fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-				fi
-			else
-			# directory doesn't exist
-				infoOut "No existing config file at $configfile. Creating one now."
-				makepath "$configfile"
-				# creates a blank plist
-				plutil -create xml1 "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+		while read -r labelInFile
+		do 
+
+			if [[ $ignoredLabelsArray[$labelInFile] -eq 1 ]]
+			then
+				notice "Ignoring labels in $labelFile."
+				continue 2 # we're done here. Move along.
 			fi
 
-		else # file exists
+		done < <(grep -E '^([a-z0-9\_-]*)(\)|\|\\)$' "$labelFragment" | sed -e 's/[\|\\\)]//g' )
 
-			if [[ -w $configfile ]]
-			then 
-				infoOut "Refreshing $configfile"
-			else
-				fatal "$configfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-			fi	
-		
+		# clear for next iteration
+		expectedTeamID=""
+		packageID=""
+		name=""
+		appName=""
+		current_label=""
+		versionKey="CFBundleShortVersionString"
+
+
+## for discovery phase, use grep: '^([a-z0-9\_-]*)(\)|\|\\)$' 
+## labelFragment contains n label_names
+## easier than parsing line by line
+
+
+		# set variables
+		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 
+		eval $(grep -E -m1 '^\s*packageID' "$labelFragment")
+		eval $(grep -E -m1 '^\s*expectedTeamID' "$labelFragment")
+				
+		if [[ -n $expectedTeamID ]]
+		then
+			infoOut "Processing labels in $labelFile."
+		 	FindAppFromLabel "$labelFile"
+		else
+			infoOut "Error in $labelFile. No Team ID."	
 		fi
+		 
+	done
 
-		/usr/libexec/PlistBuddy -c "clear dict" "${configfile}"
-		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configfile}"	
-		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
-
-	fi
-
-	# get current user
-	currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
-
-	uid=$(id -u "$currentUser")
-	
-	notice "Current User: $currentUser (UID $uid)"
-
-	# start of label pattern
-	label_re='^([a-z0-9\_-]*)(\))$'
-	#label_re='^([a-z0-9\_-]*)(\)|\|\\)$' 
-
-	# ignore comments
-	comment_re='^\#$'
-
-	# end of label pattern
-	endlabel_re='^;;'
-
-	targetDir="/"
-	versionKey="CFBundleShortVersionString"
-
-	IFS=$'\n'
-	in_label=0
-	current_label=""
-
-	### MAIN EVENT
-
-	# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments. 
-	# get app name, label name, packageID
-
-
-	if [[ $skipDiscovery != true ]]
-	then
-		for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
-
-			labelFile=$(basename -- "$labelFragment")
-			labelFile=${labelFile%.*}
-	
-			if [[ ${#ignoredLabelsArray} -gt 0 ]] 
-			then			
-				if [[ $ignoredLabelsArray[$labelFile] -eq 1 ]]
-				then
-					notice "Ignoring label $labelFile."
-					continue # we're done here. Move along.
-				fi
-			fi
-			
-			infoOut "Processing label $labelFile."
-
-			# Run the label as a sub-script
-			exec 3< "${labelFragment}"
-
-			while read -r -u 3 line; do 
-
-				# strip spaces and tabs, delete commented lines starting with #
-				scrubbedLine="$(echo $line | sed -E -e 's/^( |\t)*//g' -e 's/^\s*#.*$//')"
-		
-				if [ -n $scrubbedLine ]; then
-
-					if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
-					   label_name="$labelFile" #${match[1]}
-					   in_label=1
-					   continue # skips to the next iteration
-					fi
-
-					if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
-						# label complete. A valid label includes a Team ID. If we have one, we can check for installed
-						[[ -n $expectedTeamID ]] && FindAppFromLabel
-
-						in_label=0
-						packageID=""
-						name=""
-						appName=""
-						current_label=""
-
-						continue # skips to the next iteration
-					fi
-
-					if [[ $in_label -eq 1 ]]; then
-						# add the label lines to create a "subscript" to check versions and whatnot
-						# if empty, add the first line. Otherwise, you'll get a null line
-						# [[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
-
-						case $scrubbedLine in
-
-						  'name='*|'packageID'*|'expectedTeamID'*)
-							  eval "$scrubbedLine"
-						  ;;
-
-						esac
-					fi
-				fi
-			done
-
-		done
-	fi
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $configfile."
 	
-	labelsFromConfig=($(defaults read "$configfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
+	labelsFromConfig=($(defaults read "$configfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
 	
-	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
 	
-	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
 	
 	ignoredLabelsList+=($ignoredLabelsFromConfig)
 	requiredLabelsList+=($requiredLabelsFromConfig)
 
-	labelsArray+=($labelsFromConfig $requiredLabels $requiredLabelsFromConfig)
+	labelsList+=($labelsFromConfig $requiredLabels $requiredLabelsFromConfig)
 	
 # 	# deduplicate ignored labels
 	ignoredLabelsList=($(tr ' ' '\n' <<< "${ignoredLabelsList[@]}" | sort -u | tr '\n' ' '))
@@ -1048,11 +1068,11 @@ else
 	requiredLabelsList=($(tr ' ' '\n' <<< "${requiredLabelsList[@]}" | sort -u | tr '\n' ' '))
 
 # 	# deduplicate labels list
-	labelsArray=($(tr ' ' '\n' <<< "${labelsArray[@]}" | sort -u | tr '\n' ' '))
+	labelsList=($(tr ' ' '\n' <<< "${labelsList[@]}" | sort -u | tr '\n' ' '))
 
-	labelsArray=${labelsArray:|ignoredLabelsList}
+	labelsList=${labelsList:|ignoredLabelsList}
 
-	notice "Labels to install: $labelsArray"
+	notice "Labels to install: $labelsList"
 	notice "Ignoring labels: $ignoredLabelsList"
 	notice "Required labels: $requiredLabelsList"
 	
@@ -1061,58 +1081,63 @@ fi
 # end discovery	
 
 
-
 # for each app found, check version and verify
 for foundLabel appPath in ${(kv)foundLabelsArray};
 do
 
-	# echo "$foundLabel == $appPath"
-	labelFragment="${fragmentsPATH}/labels/${foundLabel}.sh"
-	
-	# read the label as a sub-script
-	exec 3< "${labelFragment}"
+	if [[ $ignoredLabelsArray["$foundLabel"] -ne 1 ]]
+	then
 
-	while read -r -u 3 line; do 
-
-		# strip spaces and tabs 
-		scrubbedLine="$(echo $line | sed -E -e 's/^( |\t)*//g' -e 's/^\s*#.*$//')"
+		# echo "$foundLabel == $appPath"
+		labelFragment="${fragmentsPATH}/labels/${foundLabel}.sh"
 	
-		if [[ -n $scrubbedLine ]]; then
+		# read the label as a sub-script
+		exec 3< "${labelFragment}"
+
+		while read -r -u 3 line; do 
+
+			# strip spaces and tabs 
+			scrubbedLine="$(echo $line | sed -E -e 's/^( |\t)*//g' -e 's/^\s*#.*$//')"
+	
+			if [[ -n $scrubbedLine ]]; then
 		
-			if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
-			   label_name=${match[1]}
-			   in_label=1
-			   continue # skips to the next iteration
+				if [[ $in_label -eq 0 && "$scrubbedLine" =~ $label_re ]]; then
+								
+					label_name=${match[1]}
+					in_label=1
+					continue # skips to the next iteration
+				fi
+
+				if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
+					# label complete. A valid label includes a Team ID. If we have one, we can check for installed
+					[[ -n $expectedTeamID ]] && verifyApp "$foundLabel" "$appPath"
+
+					in_label=0
+					packageID=""
+					name=""
+					appName=""
+					expectedTeamID=""
+					current_label=""
+					appNewVersion=""
+					versionKey="CFBundleShortVersionString"
+
+					continue # skips to the next iteration
+				fi
+
+				if [[ $in_label -eq 1 ]]; then
+					[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
+
+					case $scrubbedLine in
+
+					  'name='*|'packageID'*|'expectedTeamID'*)
+						  eval "$scrubbedLine"
+					  ;;
+
+					esac
+				fi
 			fi
-
-			if [[ $in_label -eq 1 && "$scrubbedLine" =~ $endlabel_re ]]; then 
-				# label complete. A valid label includes a Team ID. If we have one, we can check for installed
-				[[ -n $expectedTeamID ]] && verifyApp "$appPath"
-
-				in_label=0
-				packageID=""
-				name=""
-				appName=""
-				expectedTeamID=""
-				current_label=""
-				appNewVersion=""
-
-				continue # skips to the next iteration
-			fi
-
-			if [[ $in_label -eq 1 ]]; then
-				[[ -z $current_label ]] && current_label=$line || current_label=$current_label$'\n'$line
-
-				case $scrubbedLine in
-
-				  'name='*|'packageID'*|'expectedTeamID'*)
-					  eval "$scrubbedLine"
-				  ;;
-
-				esac
-			fi
-		fi
-	done
+		done
+	fi
 done
 
 
@@ -1124,7 +1149,7 @@ then
 
 	IFS=' '
 
-	queuedLabelsArray=("${(@s/ /)labelsArray}")	
+	queuedLabelsArray=("${(@s/ /)labelsList}")	
 	numLabels=$((${#queuedLabelsArray[@]} - 1))
 
 	if [[ $numLabels > 0 ]]
