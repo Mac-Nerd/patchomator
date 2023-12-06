@@ -60,7 +60,7 @@ Optional lists of ignored and/or required labels can be added to fine-tune the i
 
 `--options "option1=value, option2=value..."` 	 Command line options to pass to Installomator during installation mode. Multiple command line option should be separated by commas, and inside quotes. For more information, see the [Installomator Wiki](https://github.com/Installomator/Installomator/wiki/Configuration-and-Variables)
 
-`-s` | `--skipverify`	Skips the signature verification step for discovered apps.*Does not skip verifying on installation.*
+`-s` | `--skipverify`	Skips the signature verification step for discovered apps. *Does not skip verifying on installation.*
 
 `-q` | `--quiet`	 *Quiet mode*. Minimal output.
 
