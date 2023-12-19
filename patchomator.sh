@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2023.11.07 - 1.1.RC1
-# ""
+# Version: 2023.12.01 - 1.1.RC1
+# "Gotta go fast"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -15,14 +15,16 @@
 
 
 # To Fix: 
-
+# labels with dashes. Seriously.
 
 # To Do:
-# 1.1 Add MDM deployed Non-interactive Mode --mdm "MDMName"
-# 1.1 Swift Dialog support
-# 1.1 Ignored labels from CLI into preferences on --write
+# Add MDM optimized Non-interactive Mode --mdm "MDMName"
+# Swift Dialog support
+# Automatically ignore labels that conflict with required ones
 
-# Changed/Fixed:
+# Recent Changes/Fixes:
+# Interactive mode overhaul, automatically adding skipped labels as ignored
+# 1.1 Ignored labels from CLI added into preferences on --write
 # [speed] --skip-verify to skip the step of verifying discovered apps. Does *not* skip the verification on install. 
 # [speed] Defer verification step until discovery is complete. Parallelize as much as possible.
 # Offers to install Installomator update, but requires user intervention.
@@ -30,7 +32,7 @@
 # Messaging for missing config file on --write
 # Respects --installomatoroptions setting for ignoring App Store apps (or not)
 
-# Done:
+# Older:
 # Add --ignored "all" option to skip discovery all together
 # Add --installomatoroptions to pass options to installomator
 # Turn off pretty printed formatting for --quiet
@@ -132,10 +134,6 @@ YELLOW=$(tput setaf 3 2>/dev/null)
 
 skipDiscovery=false
 
-[[ -f /usr/local/bin/dialog ]] && echo "## Swift Dialog support coming soon."
-
-
-
 #######################################
 # Functions
 
@@ -165,6 +163,9 @@ usage() {
 
 caffexit () {
 	kill "$caffeinatepid"
+
+	echo "quit:" >> /var/tmp/dialog.log
+
 	exit $1
 }
 
@@ -181,6 +182,7 @@ notice() { # verbose mode
 infoOut() { # normal messages
 	if ! [[ ${#quietmode} -eq 1 ]]; then
 		echo "$1"
+		echo "progresstext: $1" >> /var/tmp/dialog.log
 	fi
 }
 
@@ -191,6 +193,8 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n"
+	echo "quit:" >> /var/tmp/dialog.log
+
 	exit 1
 }
 
@@ -224,12 +228,17 @@ displayConfig() {
 			
 	fi
 
+	echo "quit:" >> /var/tmp/dialog.log
+
+	exit 0
+
 }
 
 checkInstallomator() {
 	
+	infoOut "Checking Installomator version."
 	# check for existence of Installomator to enable installation of updates
-	notice "Checking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
+	notice "Looking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
 	InstalledVersion="$($InstallomatorPATH version)"
 	LatestVersion="$(versionFromGit Installomator Installomator)"
@@ -337,6 +346,8 @@ installInstallomator() {
 
 
 checkLabels() {
+
+	infoOut "Checking for latest labels."
 	notice "Looking for labels in ${fragmentsPATH}/labels/"
 
 	# use curl to get the labels - who needs git?
@@ -371,26 +382,50 @@ checkLabels() {
 
 }
 
+dialogProgress() {
+	echo "message: $1" >> /var/tmp/dialog.log
+	echo "progress: reset"  >> /var/tmp/dialog.log
+}
+
+dialogPercent() { # steps / max
+	echo "progress: $((100*$1/$2))" >> /var/tmp/dialog.log
+}
+dialogReset() {
+	echo "progress: reset"  >> /var/tmp/dialog.log
+}
+
+
 downloadLatestLabels() {
+
+	dialogProgress "Downloading latest labels."
+
+	dialogPercent 1 5
 	# gets the latest release version tarball.
 	latestURL=$(curl -sSL -o - "https://api.github.com/repos/Installomator/Installomator/releases/latest" | grep tarball_url | awk '{gsub(/[",]/,"")}{print $2}') # remove quotes and comma from the returned string
 	#eg "https://api.github.com/repos/Installomator/Installomator/tarball/v10.3"
 
+
 	tarPath="$patchomatorPath/installomator.latest.tar.gz"
 
-	echo "Downloading ${latestURL} to ${tarPath}"
+	notice "Downloading ${latestURL} to ${tarPath}"
+	dialogPercent 2 5
 		
 	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${patchomatorPath} is writable or re-run as root."
 
-	echo "Extracting ${tarPath} into ${patchomatorPath}"
+	dialogPercent 3 5
+
+	notice "Extracting ${tarPath} into ${patchomatorPath}"
 	tar -xz --include='*/fragments/*' -f "$tarPath" --strip-components 1 -C "$patchomatorPath" || fatal "Unable to extract ${tarPath}. Corrupt or incomplete download?"
 	touch "${fragmentsPATH}/labels/"
+	dialogPercent 5 5
+
 }
 
 # --install
 doInstallations() {
 	
-
+	infoOut "Performing installations."
+	
 	# No sleeping
 	/usr/bin/caffeinate -d -i -m -u &
 	caffeinatepid=$!
@@ -405,9 +440,15 @@ doInstallations() {
 		InstallomatorOptionsString+=" $key=\"$value\""
 	done
 
+	installedLabels=0
+	dialogProgress "Installing $numLabels items."
+
 	for label in $queuedLabelsArray
 	do
-		echo "Installing ${label}..."
+		let installedLabels++
+		dialogPercent $installedLabels $numLabels
+		
+		infoOut "Installing ${label}..."
 		${InstallomatorPATH} ${label} ${InstallomatorOptionsString}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
@@ -420,12 +461,6 @@ doInstallations() {
 	caffexit $errorCount
 
 }
-
-
-### 1.1 
-# discover installed apps
-# add labels to found apps list 
-# do version check of found apps
 
 
 FindAppFromLabel() {
@@ -507,8 +542,8 @@ FindAppFromLabel() {
 
 
 verifyApp() {
-	foundLabel=$1
-	appPath=$2
+	foundLabel="$1"
+	appPath="$2"
 
 	if [[ -n "$configArray[$appPath]" ]]
 	then
@@ -538,7 +573,7 @@ verifyApp() {
 			fi
 
 		fi
-		notice "Checking: $appPath"
+		infoOut "Checking version: $appPath"
 	# run the commands in current_label to check for the new version string
 		newversion=$(zsh << SCRIPT_EOF
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
@@ -576,7 +611,7 @@ SCRIPT_EOF
 				labelsList=$(echo "$labelsList" | sed s/"$exists "//)
 				
 				# add replaced label to Ignored list
-				ignoredLabelsArray[$exists]=1
+				ignoredLabelsArray["$exists"]=1
 
 				if [[ ${#writeconfig} -eq 1 ]]
 				then
@@ -699,7 +734,6 @@ MDMName=$MDMName[-1] #[one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, ot
 # --yes
 
 
-
 ### Default Installomator Options:
 
 InstallomatorOptions=(\
@@ -761,8 +795,12 @@ then
 	else
 		displayConfig
 	fi
-	exit 0
+
 fi
+
+## initiate swiftdialog if we're doing more than just reading config.
+[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
+
 
 
 if [[ -f $configfile ]] && [[ ${#writeconfig} -ne 1 ]] 
@@ -770,16 +808,17 @@ then
 	infoOut "Reading existing configuration for ignored/required labels"
 
 	# parse the config for existing ignored/required labels
-	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
-	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 
 	for ignoredLabel in $ignoredLabelsFromConfig
 	do
 		if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
 		then
-			ignoredLabelsArray["$ignoredLabel"]=1		
-			notice "Ignoring $ignoredLabel"	   
+			ignoredLabelsArray["$ignoredLabel"]=1	
+#			echo $ignoredLabelsArray["$ignoredLabel"]
+			notice "Ignoring $ignoredLabel"
 		fi
 	done
 	
@@ -944,6 +983,9 @@ then
 
 		for ignoredLabel in $ignoredLabelsList
 		do
+		
+#			echo "+++ $ignoredLabel"
+		
 			if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]
 			then
 		
@@ -952,7 +994,7 @@ then
 					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile
 				fi
 					
-				ignoredLabelsArray[$ignoredLabel]=1
+				ignoredLabelsArray["$ignoredLabel"]=1
 					
 			else
 				error "No such label ${ignoredLabel}"
@@ -1000,7 +1042,16 @@ current_label=""
 if [[ $skipDiscovery != true ]]
 then
 
+	numFragments=$(ls "$fragmentsPATH"/labels/*.sh | wc -l | xargs)
+	processedFragments=0
+	
+	dialogProgress "Processing $numFragments labels"
+	
 	for labelFragment in "$fragmentsPATH"/labels/*.sh; do 
+
+		let processedFragments++
+		
+		dialogPercent $processedFragments $numFragments
 
 		labelFile=$(basename -- "$labelFragment")
 		labelFile=${labelFile%.*}
@@ -1009,7 +1060,7 @@ then
 		while read -r labelInFile
 		do 
 
-			if [[ $ignoredLabelsArray[$labelInFile] -eq 1 ]]
+			if [[ $ignoredLabelsArray["$labelInFile"] -eq 1 ]]
 			then
 				notice "Ignoring labels in $labelFile."
 				continue 2 # we're done here. Move along.
@@ -1050,11 +1101,11 @@ else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $configfile."
 	
-	labelsFromConfig=($(defaults read "$configfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+	labelsFromConfig=($(defaults read "$configfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
-	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
-	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][-_]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
 	ignoredLabelsList+=($ignoredLabelsFromConfig)
 	requiredLabelsList+=($requiredLabelsFromConfig)
@@ -1081,9 +1132,18 @@ fi
 # end discovery	
 
 
+totalFoundLabels=${#foundLabelsArray}
+processedLabels=0
+	
+dialogProgress "Processing $totalFoundLabels discovered labels"
+
 # for each app found, check version and verify
 for foundLabel appPath in ${(kv)foundLabelsArray};
 do
+
+	let processedLabels++
+	
+	dialogPercent $processedLabels $totalFoundLabels
 
 	if [[ $ignoredLabelsArray["$foundLabel"] -ne 1 ]]
 	then
@@ -1159,6 +1219,8 @@ then
 	else
 		infoOut "All apps up to date. Nothing to do." # inbox zero
 	fi
+
+	echo "quit:" >> /var/tmp/dialog.log
 	
 	exit 0
 	
