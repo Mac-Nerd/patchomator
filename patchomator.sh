@@ -198,6 +198,8 @@ fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
 	echo "quit:" >> /var/tmp/dialog.log
 
+	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+
 	exit 1
 }
 
@@ -232,6 +234,8 @@ displayConfig() {
 	fi
 
 	echo "quit:" >> /var/tmp/dialog.log
+
+	echo "Patchomator finished: $(date '+%F %H:%M:%S')" >> "$logPATH"
 
 	exit 0
 
@@ -788,9 +792,6 @@ elif [[ ! -f "$logPATH" ]] then
 	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
 fi
 
-exit 0
-
-
 notice "Option Count ${#InstallomatorOptions[@]}"
 notice "Installomator Options:"
 
@@ -1238,6 +1239,9 @@ then
 
 	echo "quit:" >> /var/tmp/dialog.log
 	
+	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+
+	
 	exit 0
 	
 fi
@@ -1252,5 +1256,7 @@ else
 fi
 
 displayConfig
+
+echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 
 #### That's a wrap. Don't forget to tip your server. You don't have to go home, but you can't stay here.
