@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2023.12.01 - 1.1.RC1
+# Version: 2024.01.02 - 1.1.RC2
 # "Gotta go fast"
 
 #  Big Thanks to:
@@ -23,6 +23,7 @@
 # Automatically ignore labels that conflict with required ones
 
 # Recent Changes/Fixes:
+# Added logging to /var/log/Patchomator.log
 # Interactive mode overhaul, automatically adding skipped labels as ignored
 # 1.1 Ignored labels from CLI added into preferences on --write
 # [speed] --skip-verify to skip the step of verifying discovered apps. Does *not* skip the verification on install. 
@@ -103,6 +104,8 @@ elif [[ -z $LOGGING ]]; then
     datadogLoggingLevel=INFO
 fi
 
+logPATH="/private/var/log/Patchomator.log"
+
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
 
@@ -175,24 +178,24 @@ makepath() { # creates the full path to a file, but not the file itself
 
 notice() { # verbose mode
     if [[ ${#verbose} -eq 1 ]]; then
-        echo "${YELLOW}[NOTICE]${RESET} $1"
+        echo "${YELLOW}[NOTICE]${RESET} $1" | tee -a "$logPATH"
     fi
 }
 
 infoOut() { # normal messages
 	if ! [[ ${#quietmode} -eq 1 ]]; then
-		echo "$1"
+		echo "$1" | tee -a "$logPATH"
 		echo "progresstext: $1" >> /var/tmp/dialog.log
 	fi
 }
 
 error() { # bad, but recoverable
-	echo "${BOLD}[ERROR]${RESET} $1"
+	echo "${BOLD}[ERROR]${RESET} $1" | tee -a "$logPATH"
 	let errorCount++
 }
 
 fatal() { # something bad happened.
-	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n"
+	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
 	echo "quit:" >> /var/tmp/dialog.log
 
 	exit 1
@@ -774,6 +777,20 @@ then
 	fi
 fi
 
+## Starting up. Need to log options, etc
+
+## check for log location, writable, roll if over $size?
+if [[ -w "$logPATH" ]] then
+# exists and writable
+	echo "Patchomator starting $(date)" >> "$logPATH"
+elif [[ ! -f "$logPATH" ]] then
+# doesn't exist
+	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
+fi
+
+exit 0
+
+
 notice "Option Count ${#InstallomatorOptions[@]}"
 notice "Installomator Options:"
 
@@ -800,7 +817,6 @@ fi
 
 ## initiate swiftdialog if we're doing more than just reading config.
 [[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
-
 
 
 if [[ -f $configfile ]] && [[ ${#writeconfig} -ne 1 ]] 
