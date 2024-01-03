@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2024.01.02 - 1.1.RC2
-# "Gotta go fast"
+# Version: 2024.01.03 - 1.1.RC2
+# "Auld Lang Syne"
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -12,10 +12,9 @@
 # 	Armin Briegel
 #	Jordy Thery
 #	Trevor Sysock
-
+#	Michael Zukrow
 
 # To Fix: 
-# labels with dashes. Seriously.
 
 # To Do:
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
@@ -23,6 +22,7 @@
 # Automatically ignore labels that conflict with required ones
 
 # Recent Changes/Fixes:
+# labels with dashes. Seriously.
 # Added logging to /var/log/Patchomator.log
 # Interactive mode overhaul, automatically adding skipped labels as ignored
 # 1.1 Ignored labels from CLI added into preferences on --write
