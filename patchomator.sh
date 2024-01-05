@@ -464,7 +464,7 @@ doInstallations() {
 	done
 
 	echo "Errors: $errorCount"
-
+	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 	caffexit $errorCount
 
 }
