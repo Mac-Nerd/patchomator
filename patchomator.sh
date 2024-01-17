@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2024.01.03 - 1.1.RC2
+# Version: 2024.01.17 - 1.1.RC4
 # "Auld Lang Syne"
 
 #  Big Thanks to:
@@ -18,10 +18,10 @@
 
 # To Do:
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
-# Swift Dialog support
-# Automatically ignore labels that conflict with required ones
 
 # Recent Changes/Fixes:
+# Automatically ignore labels that conflict with required ones
+# Swift Dialog support
 # labels with dashes. Seriously.
 # Added logging to /var/log/Patchomator.log
 # Interactive mode overhaul, automatically adding skipped labels as ignored
@@ -521,7 +521,7 @@ FindAppFromLabel() {
 		then
 			installedAppPath=$filteredAppPaths[1]
 			
-			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey")
+			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey" 2> /dev/null)
 
 			infoOut "Found $appName version $appversion"
 
@@ -817,8 +817,10 @@ then
 fi
 
 ## initiate swiftdialog if we're doing more than just reading config.
-[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
 
+if ! [[ ${#quietmode} -eq 1 ]]; then
+	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
+fi
 
 if [[ -f $configfile ]] && [[ ${#writeconfig} -ne 1 ]] 
 then
