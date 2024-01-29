@@ -1,4 +1,4 @@
-![Patchomator icon and text](https://github.com/Mac-Nerd/patchomator/blob/main/images/patchomator-banner.png?raw=true)
+![Patchomator icon and text](https://github.com/Mac-Nerd/patchomator/blob/1.1/images/patchomator-banner.png?raw=true)
 
 # Patchomator
 A management script for Installomator. Work in progress.
