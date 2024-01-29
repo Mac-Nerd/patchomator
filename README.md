@@ -145,7 +145,7 @@ and as a one-time switch on the command line with `--required`
 
 As of 1.1, Patchomator will display progress and other messages via [Swift Dialog](https://github.com/swiftDialog/swiftDialog), if the system has it installed.
 
-![Patchomator dialog example](https://github.com/Mac-Nerd/patchomator/blob/main/images/progress-dialog.png?raw=true)
+![Patchomator dialog example](https://github.com/Mac-Nerd/patchomator/blob/1.1/images/progress-dialog.png?raw=true)
 
 You can suppress these dialogs with the `--quiet` command line switch.
 
