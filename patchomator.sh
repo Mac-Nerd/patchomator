@@ -1,7 +1,10 @@
 #!/bin/zsh
 
-# Version: 2024.01.17 - 1.1.RC4
+# Version: 2024.01.29 - 1.1.0
 # "Auld Lang Syne"
+
+#  Gigantic Thanks to:
+#   rondelltron
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -13,6 +16,7 @@
 #	Jordy Thery
 #	Trevor Sysock
 #	Michael Zukrow
+
 
 # To Fix: 
 

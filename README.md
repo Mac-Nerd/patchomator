@@ -29,6 +29,8 @@ sudo mv patchomator.sh /usr/local/Installomator/
 
 ## Usage
 
+### Command line
+
  `./patchomator.sh`
 *Dry Run.* Without the `--install` option, Patchomator will run interactively, and search the system for applications that can be upgraded by Installomator. The user will be prompted to yes/no when duplicate or ambiguous app names are found.
 
@@ -73,7 +75,7 @@ When run, Patchomator will prompt you to install Installomator, if it doesn't al
 
 If the Installomator label files are not present, or are older than 30 days, they will be downloaded from the latest Installomator release on GitHub and put in a directory called "fragments" in the same directory as patchomator.sh
 
-## Configuration
+### Configuration
 
 When written using the `--write` option, the file `patchomator.plist` contains a list of the applications found on the system, and the corresponding Installomator labels which can be used to install or update each. By default, Patchomator will look for its configuration file in `/Library/Preferences/Patchomator` but the full path can be overridden with the `-c` or `--config` command line switch.
 
@@ -107,12 +109,14 @@ or by running Patchomator.sh with the `-r` or `--read` command line switch.
 
 This will also display two lists of Installomator labels, marked `IgnoredLabels` and `RequiredLabels`. See the next section for details. 
 
-## MDM instructions
+### MDM instructions
 
 More detail coming soon. For now, have a look at [the MDM folder](https://github.com/Mac-Nerd/patchomator/tree/main/MDM) for a starting point.
 
+If you currently use Patchomator with an MDM, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues) and let me know if you have any questions, or want to share your setup.
 
-## Ignored and Required Labels
+
+### Ignored and Required Labels
 
 By default, if Patchomator detects an application is installed that corresponds to a known label, it will be added to the configuration and updated on subsequent runs. However, there are some apps that are best left alone - either to be updated via some other mechanism, or to be kept at a specific stable version. There are also apps that will match to multiple labels. For example, "Firefox.app" can be installed by any of the following labels: firefox_da, firefox_intl, firefox, firefoxdeveloperedition, firefoxesr_intl, firefoxesr, firefoxpkg_intl, firefoxpkg. To prevent an update clobbering an installed app, or grabbing the wrong version of an ambiguous one, labels can be set to "ignored".
 
@@ -135,6 +139,17 @@ The `RequiredLabels` array works the same way in `patchomator.plist` as `Ignored
 and as a one-time switch on the command line with `--required`
 
 ```patchomator.sh --required "googlechromepkg zoom"```
+
+
+## Swift Dialog
+
+As of 1.1, Patchomator will display progress and other messages via [Swift Dialog](https://github.com/swiftDialog/swiftDialog), if the system has it installed.
+
+![Patchomator dialog example](https://github.com/Mac-Nerd/patchomator/blob/main/images/progress-dialog.png?raw=true)
+
+You can suppress these dialogs with the `--quiet` command line switch.
+
+Currently, the dialogs cannot be customized. If you would like to be able to, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues) and let me know.
 
 
 ## Patching with Patchomator
