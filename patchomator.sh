@@ -19,13 +19,13 @@
 
 
 # To Fix: 
-# Only search for apps in /Applications by default, optionally everywhere
-# apps installed in other weird locations should be identifiable by their pkg receipt.
+# Only search for apps in /Applications by default, optionally --everywhere
 # Passing installomator options with spaces in.
 
 
 # To Do:
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
+# apps installed in other weird locations should be identifiable by their pkg receipt.
 
 # Recent Changes/Fixes:
 # Automatically ignore labels that conflict with required ones
@@ -448,12 +448,16 @@ doInstallations() {
 	# Count errors
 	errorCount=0
 
-	# convert InstallomatorOptions array to string
 	InstallomatorOptionsString=""
 
-	for key value in ${(kv)InstallomatorOptions}; do
-		InstallomatorOptionsString+=" $key=\"$value\""
-	done
+	if [[ -n "$OptionsString" ]]; then
+		InstallomatorOptionsString+="$OptionsString"
+	else
+		# convert InstallomatorOptions array to string
+		for key value in ${(kv)InstallomatorOptions}; do
+			InstallomatorOptionsString+=" $key=\"$value\""
+		done
+	fi
 
 	installedLabels=0
 	dialogProgress "Installing $numLabels items."
@@ -772,28 +776,29 @@ InstallomatorOptions=(\
 
 # Parse command line --options
 OptionsString=$CLIOptions[-1]
+
 # split on spaces, then on =
-AddOptions=$(echo "$OptionsString" | awk -v OFS="\n" '{$1=$1}1' | awk -v FS="=" '{print "InstallomatorOptions+=\(["$1"]="$2"\)"}')
+# 	AddOptions=$(echo "$OptionsString" | awk -v OFS="\n" '{$1=$1}1' | awk -v FS="=" '{print "InstallomatorOptions+=\(["$1"]="$2"\)"}')
 
 # Add them to the InstallomatorOptions array
-eval "$AddOptions"
+#	eval "$AddOptions"
 
 # Additional optional settings by MDM
-if [ "$MDMName" ]
-then
-	quietmode[1]=true
-#	installmode=true
-	noninteractive[1]=true
-fi
-
-if [ "$MDMName" ]
-then
-	# set logos for known MDM vendors
-	if [ "$MDMName" != "other" ]
-	then
-		InstallomatorOptions[LOGO]="$MDMName"
-	fi
-fi
+#	if [ "$MDMName" ]
+#	then
+#		quietmode[1]=true
+#	#	installmode=true
+#		noninteractive[1]=true
+#	fi
+#	
+#	if [ "$MDMName" ]
+#	then
+#		# set logos for known MDM vendors
+#		if [ "$MDMName" != "other" ]
+#		then
+#			InstallomatorOptions[LOGO]="$MDMName"
+#		fi
+#	fi
 
 ## Starting up. Need to log options, etc
 
