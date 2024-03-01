@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2024.01.29 - 1.1.0
-# "Auld Lang Syne"
+# Version: 2024.02.29 - 1.1.1
+# "Leap Day"
 
 #  Gigantic Thanks to:
 #   rondelltron
@@ -19,6 +19,10 @@
 
 
 # To Fix: 
+# Only search for apps in /Applications by default, optionally everywhere
+# apps installed in other weird locations should be identifiable by their pkg receipt.
+# Passing installomator options with spaces in.
+
 
 # To Do:
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
@@ -509,8 +513,13 @@ FindAppFromLabel() {
 	elif [[ -d "/Applications/Utilities/$appName" ]]; then
 		applist="/Applications/Utilities/$appName"
 	else
-#        applist=$(mdfind "kind:application $appName" -0 )
-		applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+		if [[ ${#everywhere} -eq 1 ]]; then
+			applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+		else
+			applist=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+		fi	
+		# can't install things in /System/Applications, and probably shouldn't look in /Users
+		# apps installed in other weird locations should be identifiable by their pkg receipt.
 		# random files named *.app were potentially coming up in the list. Now it has to be an actual app bundle
 	fi
 	
@@ -701,6 +710,7 @@ zparseopts -D -E -F -K -- \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
 -mdm:=MDMName \
+-everywhere=everywhere \
 -options:=CLIOptions \
 || fatal "Bad command line option. See patchomator.sh --help"
 
