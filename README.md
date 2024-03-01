@@ -56,6 +56,8 @@ Displays the current configuration, based on an existing configuration file at t
 `--required "list of labels to require"`
 Optional lists of ignored and/or required labels can be added to fine-tune the installation operation. See the section "*Ignored and Required Labels*" for more details.
 
+`--everywhere`	Allows for searching the entire filesystem for applications during discovery. By default, apps installed in /Applications, /usr/local and /Library are discovered.
+
 `--config "path to config file"`	Override the default configuration file location for `--read --write` or `--install` options.
 
 `--pathtoinstallomator "path to Installomator.sh"`	Overrides the default Installomator path for `--install` option.

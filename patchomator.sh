@@ -160,6 +160,7 @@ usage() {
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
 	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location."
+	echo "\t${BOLD}--everywhere\t${RESET} Search the entire filesystem for matching apps."
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
@@ -168,7 +169,7 @@ usage() {
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}--options \"option1=value, option2=value, ...\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
-	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator{RESET}"
+	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator${RESET}"
 	exit 0
 }
 
