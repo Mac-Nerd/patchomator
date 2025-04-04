@@ -1,7 +1,7 @@
 #!/bin/zsh
 
-# Version: 2024.02.29 - 1.1.1
-# "Leap Day"
+# Version: 2025.04.04 - 1.1.2
+# "April Foolish"
 
 #  Gigantic Thanks to:
 #   rondelltron
@@ -20,8 +20,6 @@
 #	Max Roy
 
 # To Fix: 
-# Only search for apps in /Applications by default, optionally --everywhere
-# Passing installomator options with spaces in.
 
 
 # To Do:
@@ -29,6 +27,9 @@
 # apps installed in other weird locations should be identifiable by their pkg receipt.
 
 # Recent Changes/Fixes:
+# 1.1.2 Installomator 10.8 version check 
+# Only search for apps in /Applications by default, optionally --everywhere
+# Passing installomator options with spaces in.
 # Automatically ignore labels that conflict with required ones
 # Swift Dialog support
 # labels with dashes. Seriously.
@@ -258,7 +259,7 @@ checkInstallomator() {
 	# check for existence of Installomator to enable installation of updates
 	notice "Looking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
-	InstalledVersion="$($InstallomatorPATH version)"
+	InstalledVersion="$($InstallomatorPATH version | tail -1)"
 	LatestVersion="$(versionFromGit Installomator Installomator)"
 
 	notice "Latest Version: $LatestVersion - Installed Version: $InstalledVersion"
