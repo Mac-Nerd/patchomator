@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2025.04.04 - 1.1.2
+# Version: 2025.04.10 - 1.1.3
 # "April Foolish"
 
 #  Gigantic Thanks to:
@@ -131,7 +131,7 @@ declare -A requiredLabelsArray=()
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
-configfile=("/Library/Application Support/Patchomator/patchomator.plist")
+defaultConfigfile=("/Library/Application Support/Patchomator/patchomator.plist")
 managedConfigfile=("/Library/Managed Preferences/com.mac-nerd.patchomator.plist")
 #patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
 
@@ -221,9 +221,9 @@ displayConfig() {
 	echo "\n${BOLD}Currently configured labels:${RESET}"	
 
 # if a config file was created, show it at the end.
-	if [[ -f $configfile ]] 
+	if [[ -f $defaultConfigfile ]] 
 	then
-		column -t -s "=;\"\"" <<< $(defaults read "$configfile" | tr -d "{}()\"")
+		column -t -s "=;\"\"" <<< $(defaults read "$defaultConfigfile" | tr -d "{}()\"")
 	else
 # if no config was saved, show the results of the discovery process
 		for discoveredItem in $configArray
@@ -291,7 +291,7 @@ checkInstallomator() {
 		
 		
 	else
-		if [ $($InstallomatorPATH version | cut -d . -f 1) -lt 10 ]
+		if [ $(echo $InstalledVersion | cut -d . -f 1) -lt 10 ]
 		then
 			fatal "Installomator is installed, but is out of date. Versions prior to 10.0 function unpredictably with Patchomator.\nYou can probably update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
 		fi
@@ -566,12 +566,23 @@ FindAppFromLabel() {
 
 	fi
 
+	# clear for next iteration
+	expectedTeamID=""
+	packageID=""
+	name=""
+	appName=""
+	current_label=""
+	versionKey="CFBundleShortVersionString"
+
 }
 
 
 verifyApp() {
 	foundLabel="$1"
 	appPath="$2"
+
+	notice "--- Processing Label $foundLabel at $appPath"
+
 
 	if [[ -n "$configArray[$appPath]" ]]
 	then
@@ -601,6 +612,9 @@ verifyApp() {
 			fi
 
 		fi
+
+set -x
+
 		infoOut "Checking version: $appPath"
 	# run the commands in current_label to check for the new version string
 		newversion=$(zsh << SCRIPT_EOF
@@ -611,6 +625,7 @@ ${current_label}
 echo "\$appNewVersion" 
 SCRIPT_EOF
 		)
+		infoOut "-- $newversion"
 
 	fi
 # build array of labels for the config and/or installation
@@ -643,14 +658,14 @@ SCRIPT_EOF
 
 				if [[ ${#writeconfig} -eq 1 ]]
 				then
-					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$configfile"
-					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $configfile
+					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$defaultConfigfile"
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $defaultConfigfile
 				fi
 
 			else
 				echo "\t${BOLD}Skipping.${RESET}"
 				# add skipped label to Ignored list
-				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $configfile
+				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $defaultConfigfile
 
 				return
 			fi
@@ -659,10 +674,9 @@ SCRIPT_EOF
 		configArray[$appPath]=$foundLabel
 		if [[ ${#writeconfig} -eq 1 ]]
 		then
-			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$configfile"
+			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$defaultConfigfile"
 		fi
 	fi
-
 
 	appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
 	[[ -n "$appversion" ]] || appversion=$(defaults read "$appPath/Contents/Info.plist" "$versionKey" 2>/dev/null)
@@ -675,25 +689,22 @@ SCRIPT_EOF
 	then
 		notice "--- Latest version installed."
 	else
-		queueLabel
+		queueLabel 
 	fi
-
 }
 
 
 
 # --install
 queueLabel() {
-
-	notice "Queueing $label_name"
-
 	# add to queue if in install mode
 	if [[ $installmode ]]
 	then
+		notice "Queueing $label_name"
+
 		labelsList+="$label_name "
 #		echo "$labelsList"
-	fi
-		
+	fi		
 }
 
  
@@ -748,15 +759,16 @@ fi
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
-if ! [[ -f $configfile[-1] ]] && [[ -f $managedConfigfile ]]
+if [[ ${#configfile} -lt 1 ]] && [[ -f $managedConfigfile ]]
 then
-	configfile=$managedConfigfile
+	defaultConfigfile=$managedConfigfile
 else
-	configfile=$configfile[-1] # either provided on the command line, or default path
+	defaultConfigfile=$configfile[-1] # either provided on the command line, or default path	
 fi
 
+
 # prevent patchomator modify the content of the managed config
-if [[ $configfile == $managedConfigfile ]] && [[ ${#writeconfig} -eq 1 ]]
+if [[ $defaultConfigfile == $managedConfigfile ]] && [[ ${#writeconfig} -eq 1 ]]
 then
 	fatal "You should not manualy overwrite ${YELLOW}$managedConfigfile${RESET}"
 fi
@@ -842,9 +854,9 @@ then
 
 	notice "Reading Config"
 
-	if ! [[ -f $configfile ]] 
+	if ! [[ -f $defaultConfigfile ]] 
 	then
-		fatal "No config file at $configfile. Run patchomator again with ${YELLOW}--write${RESET} to create one now.\n"
+		fatal "No config file at $defaultConfigfile. Run patchomator again with ${YELLOW}--write${RESET} to create one now.\n"
 	else
 		displayConfig
 	fi
@@ -857,14 +869,14 @@ if ! [[ ${#quietmode} -eq 1 ]]; then
 	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
 fi
 
-if [[ -f $configfile ]] && [[ ${#writeconfig} -ne 1 ]] 
+if [[ -f $defaultConfigfile ]] && [[ ${#writeconfig} -ne 1 ]] 
 then
 	infoOut "Reading existing configuration for ignored/required labels"
 
 	# parse the config for existing ignored/required labels
-	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$defaultConfigfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
-	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$defaultConfigfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 
 	for ignoredLabel in $ignoredLabelsFromConfig
 	do
@@ -890,61 +902,86 @@ fi
 
 # Create Config file on --write, or if none already exists
 # --write
-if [[ ${#writeconfig} -eq 1 ]] || ! [[ -f $configfile ]]
+if [[ ${#writeconfig} -eq 1 ]] || ! [[ -f $defaultConfigfile ]]
 then
 	notice "Writing Config"
 
-	if [[ -d $configfile ]] # common mistake, select a directory, not a filename
+	if [[ -d $defaultConfigfile ]] # common mistake, select a directory, not a filename
 	then
 		fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
 	fi
 
-	if ! [[ -f $configfile ]] # no existing config
+	if ! [[ -f $defaultConfigfile ]] # no existing config
 	then
-		if [[ -d "$(dirname $configfile)" ]] 
+		if [[ -d "$(dirname $defaultConfigfile)" ]] 
 		# directory exists
 		then			
-			if [[ -w "$(dirname $configfile)" ]]
+			if [[ -w "$(dirname $defaultConfigfile)" ]]
 			#directory is writable
 			then
-				infoOut "No existing config file at $configfile. Creating one now."
+				infoOut "No existing config file at $defaultConfigfile. Creating one now."
 
 			else
 				# exists, but not writable
-				fatal "$(dirname $configfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				fatal "$(dirname $defaultConfigfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi
 		else
 		# directory doesn't exist
-			infoOut "No existing config file at $configfile. Creating one now."
-			makepath "$configfile"
+			infoOut "No existing config file at $defaultConfigfile. Creating one now."
+			makepath "$defaultConfigfile"
 		fi
 		# creates a blank plist
-		plutil -create xml1 "$configfile" || fatal "Unable to create $configfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+		plutil -create xml1 "$defaultConfigfile" || fatal "Unable to create $defaultConfigfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 
 	else # file exists
 
-		if [[ -w $configfile ]]
+		if [[ -w $defaultConfigfile ]]
 		then 
-			infoOut "Refreshing $configfile"
+			infoOut "Refreshing $defaultConfigfile"
 			# create blank plist or empty an existing one
-			/usr/libexec/PlistBuddy -c "clear dict" "${configfile}"
+			/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}"
 	
 		else
-			fatal "$configfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+			fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 		fi	
 	
 	fi
 	
 	# add sections for label arrays
-	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configfile}"	
-	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
 
 fi
 # END --write
 
 
-# can't do discovery without the labels files.
-checkLabels
+
+# --install
+# some functions act differently based on install vs discovery/read
+if [[ ${#installmode} -eq 1 ]]
+then
+	installmode=true
+	skipDiscovery=true
+	skipVerify=true
+
+else 
+	installmode=false
+
+	# can't do discovery without the labels files.
+	checkLabels
+
+	# speed up the discovery phase.
+	if [[ ${#skipVerify} -eq 1 ]]
+	then
+		skipVerify=true
+	else
+		skipVerify=false
+	fi
+
+fi
+
+
+
 
 # MOAR Functions! miscellaneous pieces referenced in the occasional label
 # Needs to confirm that labels exist first.
@@ -955,21 +992,7 @@ source "$fragmentsPATH/functions.sh"
 checkInstallomator	
 
 
-# speed up the discovery phase.
-if [[ ${#skipVerify} -eq 1 ]]
-then
-	skipVerify=true
-else
-	skipVerify=false
-fi
 
-
-# --install
-# some functions act differently based on install vs discovery/read
-if [[ ${#installmode} -eq 1 ]]
-then
-	installmode=true
-fi
 
 
 if [[ $installmode ]]
@@ -982,9 +1005,6 @@ then
 	fi
 	
 fi
-
-# discovery mode
-# the main attraction.
 
 
 # --required
@@ -1002,7 +1022,7 @@ then
 
 			if [[ ${#writeconfig} -eq 1 ]]
 			then
-				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configfile	
+				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $defaultConfigfile	
 			fi
 
 			if [[ $installmode ]]
@@ -1045,7 +1065,7 @@ then
 		
 				if [[ ${#writeconfig} -eq 1 ]]
 				then
-					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configfile
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $defaultConfigfile
 				fi
 					
 				ignoredLabelsArray["$ignoredLabel"]=1
@@ -1059,6 +1079,10 @@ then
 
 fi
 
+
+
+# discovery mode
+# the main attraction.
 
 
 # DISCOVERY PHASE
@@ -1153,13 +1177,13 @@ then
 
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
-	infoOut "Existing config found at $configfile."
+	infoOut "Existing config found at $defaultConfigfile."
 	
-	labelsFromConfig=($(defaults read "$configfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	labelsFromConfig=($(defaults read "$defaultConfigfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
-	ignoredLabelsFromConfig=($(defaults read "$configfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$defaultConfigfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
-	requiredLabelsFromConfig=($(defaults read "$configfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$defaultConfigfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 	
 	ignoredLabelsList+=($ignoredLabelsFromConfig)
 	requiredLabelsList+=($requiredLabelsFromConfig)
@@ -1260,7 +1284,7 @@ done
 
 if [[ $installmode ]]
 then
-
+	
 	IFS=' '
 
 	queuedLabelsArray=("${(@s/ /)labelsList}")	
@@ -1271,7 +1295,7 @@ then
 		infoOut "Passing $numLabels labels to Installomator: $queuedLabelsArray"
 		doInstallations
 	else
-		infoOut "All apps up to date. Nothing to do." # inbox zero
+		infoOut "Nothing to do." # inbox zero
 	fi
 
 	echo "quit:" >> /var/tmp/dialog.log
