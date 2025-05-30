@@ -759,10 +759,11 @@ fi
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
-if [[ ${#configfile} -lt 1 ]] && [[ -f $managedConfigfile ]]
+if [[ ${#configfile} -eq 0 ]] && [[ -f $managedConfigfile ]]
 then
 	defaultConfigfile=$managedConfigfile
-else
+elif [[ ${#configfile} -gt 0 ]]
+then
 	defaultConfigfile=$configfile[-1] # either provided on the command line, or default path	
 fi
 
