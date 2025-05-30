@@ -1188,23 +1188,32 @@ else
 	ignoredLabelsList+=($ignoredLabelsFromConfig)
 	requiredLabelsList+=($requiredLabelsFromConfig)
 
-	labelsList+=($labelsFromConfig $requiredLabels $requiredLabelsFromConfig)
+	labelsList+=($labelsFromConfig $requiredLabelsList)
 	
-# 	# deduplicate ignored labels
+# 	# deduplicate ignored labels and remove extra spacing
 	ignoredLabelsList=($(tr ' ' '\n' <<< "${ignoredLabelsList[@]}" | sort -u | tr '\n' ' '))
+  	ignoredLabelsList="${ignoredLabelsList## }"
+	ignoredLabelsList="${ignoredLabelsList%% }"
+ 	ignoredLabelsList="${ignoredLabelsList//[[:space:]]+/  }"
 
-# 	# deduplicate required labels
+# 	# deduplicate required labels and remove extra spacing
 	requiredLabelsList=($(tr ' ' '\n' <<< "${requiredLabelsList[@]}" | sort -u | tr '\n' ' '))
+  	requiredLabelsList="${requiredLabelsList## }"
+	requiredLabelsList="${requiredLabelsList%% }"
+ 	requiredLabelsList="${requiredLabelsList//[[:space:]]+/  }"
 
-# 	# deduplicate labels list
+# 	# deduplicate labels list and remove extra spacing
 	labelsList=($(tr ' ' '\n' <<< "${labelsList[@]}" | sort -u | tr '\n' ' '))
+ 	labelsList="${labelsList## }"
+	labelsList="${labelsList%% }"
+ 	labelsList="${labelsList//[[:space:]]+/  }"
 
+#	# remove ignored labels
 	labelsList=${labelsList:|ignoredLabelsList}
 
 	notice "Labels to install: $labelsList"
 	notice "Ignoring labels: $ignoredLabelsList"
-	notice "Required labels: $requiredLabelsList"
-	
+	notice "Required labels: $requiredLabelsList"	
 	
 fi	
 # end discovery	
@@ -1288,7 +1297,7 @@ then
 	IFS=' '
 
 	queuedLabelsArray=("${(@s/ /)labelsList}")	
-	numLabels=$((${#queuedLabelsArray[@]} - 1))
+	numLabels=${#queuedLabelsArray[@]}
 
 	if [[ $numLabels > 0 ]]
 	then
