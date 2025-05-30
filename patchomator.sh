@@ -1,10 +1,11 @@
 #!/bin/zsh
 
-# Version: 2025.04.10 - 1.1.3
+# Version: 2025.05.30 - 1.1.3
 # "April Foolish"
 
 #  Gigantic Thanks to:
 #   rondelltron
+#	Skinflint
 
 #  Big Thanks to:
 # 	Adam Codega
@@ -27,6 +28,8 @@
 # apps installed in other weird locations should be identifiable by their pkg receipt.
 
 # Recent Changes/Fixes:
+# Detect Swift Dialog
+# Skinflint - fixed my broken updates. Specifically, remove extra spaces, and use requiredLabelsList
 # 1.1.2 Installomator 10.8 version check 
 # Only search for apps in /Applications by default, optionally --everywhere
 # Passing installomator options with spaces in.
@@ -148,6 +151,8 @@ YELLOW=$(tput setaf 3 2>/dev/null)
 
 skipDiscovery=false
 
+[[ -f /usr/local/bin/dialog ]] && DialogPATH="/var/tmp/dialog.log" || DialogPATH="/dev/null"
+
 #######################################
 # Functions
 
@@ -179,7 +184,7 @@ usage() {
 caffexit () {
 	kill "$caffeinatepid"
 
-	echo "quit:" >> /var/tmp/dialog.log
+	echo "quit:" >> $DialogPATH
 
 	exit $1
 }
@@ -197,7 +202,7 @@ notice() { # verbose mode
 infoOut() { # normal messages
 	if ! [[ ${#quietmode} -eq 1 ]]; then
 		echo "$1" | tee -a "$logPATH"
-		echo "progresstext: $1" >> /var/tmp/dialog.log
+		echo "progresstext: $1" >> $DialogPATH
 	fi
 }
 
@@ -208,7 +213,7 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
-	echo "quit:" >> /var/tmp/dialog.log
+	echo "quit:" >> $DialogPATH
 
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 
@@ -245,7 +250,7 @@ displayConfig() {
 			
 	fi
 
-	echo "quit:" >> /var/tmp/dialog.log
+	echo "quit:" >> $DialogPATH
 
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" >> "$logPATH"
 
@@ -402,15 +407,15 @@ checkLabels() {
 }
 
 dialogProgress() {
-	echo "message: $1" >> /var/tmp/dialog.log
-	echo "progress: reset"  >> /var/tmp/dialog.log
+	echo "message: $1" >> $DialogPATH
+	echo "progress: reset"  >> $DialogPATH
 }
 
 dialogPercent() { # steps / max
-	echo "progress: $((100*$1/$2))" >> /var/tmp/dialog.log
+	echo "progress: $((100*$1/$2))" >> $DialogPATH
 }
 dialogReset() {
-	echo "progress: reset"  >> /var/tmp/dialog.log
+	echo "progress: reset"  >> $DialogPATH
 }
 
 
@@ -612,8 +617,6 @@ verifyApp() {
 			fi
 
 		fi
-
-set -x
 
 		infoOut "Checking version: $appPath"
 	# run the commands in current_label to check for the new version string
@@ -1308,7 +1311,7 @@ then
 		infoOut "Nothing to do." # inbox zero
 	fi
 
-	echo "quit:" >> /var/tmp/dialog.log
+	echo "quit:" >> $DialogPATH
 	
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 
