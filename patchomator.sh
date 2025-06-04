@@ -1,10 +1,10 @@
 #!/bin/zsh
 
-# Version: 2025.05.30 - 1.1.3
+# Version: 2025.05.30 - 1.1.3b2
 # "April Foolish"
 
 #  Gigantic Thanks to:
-#   rondelltron
+#	rondelltron
 #	Skinflint
 
 #  Big Thanks to:
@@ -480,7 +480,6 @@ doInstallations() {
 		${InstallomatorPATH} ${label} ${InstallomatorOptionsString}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
-			let errorCount++
 		fi
 	done
 
@@ -494,48 +493,79 @@ doInstallations() {
 FindAppFromLabel() {
 # appname label_name packageID
 	label_name=$1
-	appversion=""
+	installLocation=""
+ 	applist=""
 
+	notice "Label: $label_name"
+  
 	if [ -z "$appName" ]; then
 		# when not given derive from name
 		appName="$name.app"
 	fi
-
-	# shortcut: pkgs contains a version number, if it's installed then we don't have to parse the plist. 
+	
+	# if the appversion is already set, there is an appCustomVersion function defined
+ 	# check the funtion to see if it uses defaults read for an Info.plist for the app
+  	# if that exists, we can parse the file path from the function
+   
+ 	if [[ -n "$appversion" ]]; then
+		if echo "$appCustomVersion" | grep -q 'Contents/Info\.plist'; then
+    			installLocation=$(echo "$appCustomVersion" | sed -n 's|.*defaults read *"\{0,1\}\([^"]\{1,\}\)/Contents/Info.plist.*|\1|p')
+       			if [[ -z "$installLocation" ]]; then
+    				installLocation=$(awk '
+					/defaults read/ {
+						path = $0
+						gsub(/.*read "/, "", path)
+						sub(/\/Contents\/Info.plist.*/, "", path)
+						print path
+						exit
+					}' <<< "$appCustomVersion")
+     			fi
+			if [[ -d "$installLocation" ]]; then
+   				notice "Found: ${installLocation}"
+				applist="$installLocation"
+   			fi
+    		fi
+	fi
+ 
+	# shortcut: pkgs contains a version number, if it's installed then we don't have to search the HD for the file
 	# still need to confirm it's installed, tho. Receipts can be unreliable.
-	if [[ "$packageID" != "" ]]
-	then
-		notice "Searching system for $packageID"
-		
+ 
+ 	if [[ -n "$packageID" ]] && [[ -z "$applist" ]]; then
+       		notice "Searching system for $packageID"
 		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
-		
-		if [[ -n $appversion ]]; then
-			notice "Label: $label_name"
-			notice "--- found packageID $packageID version $appversion installed"
-			InstalledLabelsArray+=( "$label_name" )
-		fi
-	else 
-		notice "Searching system for $appName"
-	fi
+  		if [[ -n "$appversion" ]]; then
+     			notice "--- found packageID $packageID version $appversion installed"
+			installLocation="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 install-location | tail -1 | sed -E 's/.*>(.*)<.*/\1/g')"
+   			for ext in .app .plugin .prefPane .framework .kext; do
+				if [ -d "/${installLocation}${ext}" ]; then
+					notice "Found: /${installLocation}${ext}"
+     					applist="/${installLocation}${ext}"
+					break
+				fi
+			done
+     		fi
+	fi 	
 
-	
-	# get app in /Applications, or /Applications/Utilities, or find using Spotlight
-	
-	if [[ -d "/Applications/$appName" ]]; then
-		applist="/Applications/$appName"
-	elif [[ -d "/Applications/Utilities/$appName" ]]; then
-		applist="/Applications/Utilities/$appName"
-	else
-		if [[ ${#everywhere} -eq 1 ]]; then
-			applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+	# get app in /Applications, or /Applications/Utilities, or find using Spotlight if not already found
+
+ 	if [[ -z "$applist" ]]; then
+  		notice "Searching system for $appName"
+		if [[ -d "/Applications/$appName" ]]; then
+			applist="/Applications/$appName"
+		elif [[ -d "/Applications/Utilities/$appName" ]]; then
+			applist="/Applications/Utilities/$appName"
 		else
-			applist=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
-		fi	
-		# can't install things in /System/Applications, and probably shouldn't look in /Users
-		# apps installed in other weird locations should be identifiable by their pkg receipt.
-		# random files named *.app were potentially coming up in the list. Now it has to be an actual app bundle
+			if [[ ${#everywhere} -eq 1 ]]; then
+				applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+			else
+				applist=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+			fi	
+			# can't install things in /System/Applications, and probably shouldn't look in /Users
+			# apps installed in other weird locations should be identifiable by their pkg receipt.
+			# random files named *.app were potentially coming up in the list. Now it has to be an actual app bundle
+		fi
 	fi
-	
+ 
 	appPathArray=( ${(0)applist} )
 
 	if [[ ${#appPathArray} -gt 0 ]]
@@ -549,7 +579,7 @@ FindAppFromLabel() {
 			
 			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey" 2> /dev/null)
 
-			infoOut "Found $appName version $appversion"
+			infoOut "Found $name version $appversion"
 
 			notice "Label: $label_name"
 			notice "--- found app at $installedAppPath"
@@ -570,15 +600,6 @@ FindAppFromLabel() {
 		fi
 
 	fi
-
-	# clear for next iteration
-	expectedTeamID=""
-	packageID=""
-	name=""
-	appName=""
-	current_label=""
-	versionKey="CFBundleShortVersionString"
-
 }
 
 
@@ -601,19 +622,23 @@ verifyApp() {
 			# verify with spctl
 			appVerify=$(spctl -a -vv "$appPath" 2>&1 )
 			appVerifyStatus=$(echo $?)
-			teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
 
-			if [[ $appVerifyStatus -ne 0 ]]
-			then
-				error "Error verifying $appPath: Returned $appVerifyStatus"
-				return
-			fi
+			# If there is no usable signature and the app type is .plugin, then continue
+   			# Found useful for JRE since Oracle does not sign JRE
+      
+			if [[ "$appVerify" != *"no usable signature" ]] && [[ "$appPath" != *".plugin" ]]; then
+   				teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
 
-			if [ "$expectedTeamID" != "$teamID" ]
-			then
-				error "Error verifying $appPath"
-				notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
-				return
+				if [[ $appVerifyStatus -ne 0 ]]; then
+					error "Error verifying $appPath: Returned $appVerifyStatus"
+					return
+				fi
+
+				if [ "$expectedTeamID" != "$teamID" ]; then
+					error "Error verifying $appPath"
+					notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
+					return
+     				fi
 			fi
 
 		fi
@@ -1156,7 +1181,9 @@ then
 		name=""
 		appName=""
 		current_label=""
-		versionKey="CFBundleShortVersionString"
+		versionKey=""
+  		appCustomVersion=""
+    		appversion=""
 
 
 ## for discovery phase, use grep: '^([a-z0-9\_-]*)(\)|\|\\)$' 
@@ -1165,20 +1192,40 @@ then
 
 
 		# set variables
-		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 
-		eval $(grep -E -m1 '^\s*packageID' "$labelFragment")
+
 		eval $(grep -E -m1 '^\s*expectedTeamID' "$labelFragment")
 				
-		if [[ -n $expectedTeamID ]]
+		if [[ -z $expectedTeamID ]]
 		then
-			infoOut "Processing labels in $labelFile."
-		 	FindAppFromLabel "$labelFile"
-		else
-			infoOut "Error in $labelFile. No Team ID."	
+			infoOut "Error in $labelFile. No Team ID."
+   			continue
 		fi
-		 
-	done
 
+  		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 
+		eval $(grep -E -m1 '^\s*packageID' "$labelFragment")
+		eval $(grep -E -m1 '^\s*versionKey' "$labelFragment")
+		versionKey="${versionKey:-CFBundleShortVersionString}"
+
+		if grep -q '^\s*appCustomVersion\s*()' "$labelFragment"
+  		then
+			appCustomVersion=$(grep -E -m1 '^\s*appCustomVersion' "$labelFragment" | sed -E 's/^.*\(\)[[:space:]]*\{[[:space:]]*(.*)[[:space:]]*\}/\1/')
+			if [[ -z "$appCustomVersion" ]] || [[ "$appCustomVersion" == *"{"$ ]]
+   			then
+				appCustomVersion=$(awk '
+					/^[[:space:]]*appCustomVersion[[:space:]]*\(\)[[:space:]]*\{/ { inside=1; next }
+					inside {
+						if ($0 ~ /^[[:space:]]*\}/) { inside=0; exit }
+						print
+					}' "$labelFragment")
+			fi
+   			if [[ ! "$appCustomVersion" =~ ^[[:space:]]*strings ]]; then
+				appversion=$(eval "$appCustomVersion" 2>/dev/null)
+    			fi
+		fi
+
+		infoOut "Processing labels in $labelFile."
+		FindAppFromLabel "$labelFile"   
+	done
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $defaultConfigfile."
