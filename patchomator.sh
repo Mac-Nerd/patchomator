@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2025.05.30 - 1.1.3b2
+# Version: 2025.06.05 - 1.1.3b2
 # "April Foolish"
 
 #  Gigantic Thanks to:
@@ -200,7 +200,7 @@ notice() { # verbose mode
 }
 
 infoOut() { # normal messages
-	if ! [[ ${#quietmode} -eq 1 ]]; then
+	if (( ! ${#quietmode} )); then
 		echo "$1" | tee -a "$logPATH"
 		echo "progresstext: $1" >> $DialogPATH
 	fi
@@ -623,23 +623,37 @@ verifyApp() {
 			appVerify=$(spctl -a -vv "$appPath" 2>&1 )
 			appVerifyStatus=$(echo $?)
 
-			# If there is no usable signature and the app type is .plugin, then continue
-   			# Found useful for JRE since Oracle does not sign JRE
+			# If there is no usable signature and the app type is .plugin, then try another method
+   			# Found useful for JRE since Oracle does not sign JRE Plugin, but does sign in bin
       
-			if [[ "$appVerify" != *"no usable signature" ]] && [[ "$appPath" != *".plugin" ]]; then
-   				teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
-
-				if [[ $appVerifyStatus -ne 0 ]]; then
+			if [[ "$appVerify" == *"no usable signature" ]] && [[ "$appPath" == *".plugin" ]]; then
+   				teamIdentifiers="$(find "$appPath/Contents/Home/Bin" -type f -exec codesign -dv {} 2>&1 \; | grep TeamIdentifier | sort -u)"
+       				if [[ -n "$teamIdentifiers" ]]; then
+       					idCount=$(printf "%s\n" "$teamIdentifiers" | wc -l | tr -d ' ')
+	    				if ((idCount > 1)); then
+						error "Error verifying $appPath"
+      						notice "Team IDs do not match: expected: $expectedTeamID, found multiple IDs in plugin Home/Bin directory"
+	    					return
+      					fi
+					teamID="${teamIdentifiers#*=}"
+     				else
+	 				error "Error verifying $appPath"
+      					notice "Team IDs do not match: expected: $expectedTeamID, found no IDs in plugin Home/Bin directory"
+	   				return
+				fi
+   			else
+      				if [[ $appVerifyStatus -ne 0 ]]; then
 					error "Error verifying $appPath: Returned $appVerifyStatus"
 					return
 				fi
-
-				if [ "$expectedTeamID" != "$teamID" ]; then
-					error "Error verifying $appPath"
-					notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
-					return
-     				fi
+				teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
 			fi
+
+   			if [ "$expectedTeamID" != "$teamID" ]; then
+				error "Error verifying $appPath"
+				notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
+				return
+     			fi
 
 		fi
 
@@ -667,15 +681,15 @@ SCRIPT_EOF
 		infoOut "${appPath} already linked to label ${exists}."
 		if [[ ${#noninteractive} -eq 1 ]]
 		then
-			echo "\t${BOLD}Skipping.${RESET}"
+			infoOut "\t${BOLD}Skipping.${RESET}"
 			return
 		else
-			echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
+			infoOut -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
 			read replaceLabel 
 
 			if [[ $replaceLabel =~ '[Yy]' ]]
 			then
-				echo "\t${BOLD}Replacing.${RESET}"
+				infoOut "\t${BOLD}Replacing.${RESET}"
 				configArray[$appPath]=$label_name
 				
 				# Remove duplicate label already in queue:
@@ -691,7 +705,7 @@ SCRIPT_EOF
 				fi
 
 			else
-				echo "\t${BOLD}Skipping.${RESET}"
+				infoOut "\t${BOLD}Skipping.${RESET}"
 				# add skipped label to Ignored list
 				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $defaultConfigfile
 
@@ -894,7 +908,7 @@ fi
 
 ## initiate swiftdialog if we're doing more than just reading config.
 
-if ! [[ ${#quietmode} -eq 1 ]]; then
+if (( ! ${#quietmode} )); then
 	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
 fi
 
@@ -968,7 +982,7 @@ then
 		then 
 			infoOut "Refreshing $defaultConfigfile"
 			# create blank plist or empty an existing one
-			/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}"
+			/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}" &>/dev/null
 	
 		else
 			fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
@@ -987,14 +1001,14 @@ fi
 
 # --install
 # some functions act differently based on install vs discovery/read
-if [[ ${#installmode} -eq 1 ]]
+if (( ${#installmode} ))
 then
 	installmode=true
 	skipDiscovery=true
 	skipVerify=true
 
 else 
-	installmode=false
+	installmode=""  ##MAKE IT BLANK SO [[ $installmode ]] WORKS AS FALSE
 
 	# can't do discovery without the labels files.
 	checkLabels
@@ -1193,7 +1207,7 @@ then
 
 		# set variables
 
-		eval $(grep -E -m1 '^\s*expectedTeamID' "$labelFragment")
+		eval $(grep -E -m1 '^\s*expectedTeamID' "$labelFragment") 2>/dev/null
 				
 		if [[ -z $expectedTeamID ]]
 		then
@@ -1201,9 +1215,9 @@ then
    			continue
 		fi
 
-  		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 
-		eval $(grep -E -m1 '^\s*packageID' "$labelFragment")
-		eval $(grep -E -m1 '^\s*versionKey' "$labelFragment")
+  		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 2>/dev/null
+		eval $(grep -E -m1 '^\s*packageID' "$labelFragment") 2>/dev/null
+		eval $(grep -E -m1 '^\s*versionKey' "$labelFragment") 2>/dev/null
 		versionKey="${versionKey:-CFBundleShortVersionString}"
 
 		if grep -q '^\s*appCustomVersion\s*()' "$labelFragment"
@@ -1223,7 +1237,7 @@ then
     			fi
 		fi
 
-		infoOut "Processing labels in $labelFile."
+		infoOut "Processing label $labelFile."
 		FindAppFromLabel "$labelFile"   
 	done
 else
@@ -1371,12 +1385,14 @@ fi
 
 if [ "$errorCount" -gt 0 ]
 then
-	echo "${BOLD}Completed with $errorCount errors.${RESET}\n"
+	infoOut "${BOLD}Completed with $errorCount errors.${RESET}\n"
 else
-	echo "${BOLD}Done.${RESET}\n"
+	infoOut "${BOLD}Done.${RESET}\n"
 fi
 
-displayConfig
+if (( ! ${#quietmode} )); then
+	displayConfig
+fi
 
 echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 
