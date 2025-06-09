@@ -28,8 +28,12 @@
 # apps installed in other weird locations should be identifiable by their pkg receipt.
 
 # Recent Changes/Fixes:
+# Consistent messages for exiting and logging
+# Set maximum rolled logs to 5 by default. Configured via backupLogsMax
+# Roll logs if greater than 1MB by default. Configured via logSizeMax in bytes
+# Use appCustomVersion from label file for a check
 # Detect Swift Dialog
-# Skinflint - fixed my broken updates. Specifically, remove extra spaces, and use requiredLabelsList
+# remove extra spaces, and use requiredLabelsList
 # 1.1.2 Installomator 10.8 version check 
 # Only search for apps in /Applications by default, optionally --everywhere
 # Passing installomator options with spaces in.
@@ -118,6 +122,8 @@ elif [[ -z $LOGGING ]]; then
 fi
 
 logPATH="/private/var/log/Patchomator.log"
+backupLogsMax=5
+logSizeMax=$((1024 * 1024))  # 1 MB in bytes
 
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
@@ -181,10 +187,13 @@ usage() {
 
 caffexit () {
 	kill "$caffeinatepid"
-
 	echo "quit:" >> $DialogPATH
+	finishAndexit $1
+}
 
-	exit $1
+finishAndExit () {
+	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+ 	exit $1
 }
 
 makepath() { # creates the full path to a file, but not the file itself
@@ -213,9 +222,7 @@ fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
 	echo "quit:" >> $DialogPATH
 
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
-
-	exit 1
+ 	finishAndExit 1
 }
 
 # --read 
@@ -250,10 +257,7 @@ displayConfig() {
 
 	echo "quit:" >> $DialogPATH
 
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" >> "$logPATH"
-
-	exit 0
-
+ 	finishAndExit 0
 }
 
 checkInstallomator() {
@@ -416,6 +420,23 @@ dialogReset() {
 	echo "progress: reset"  >> $DialogPATH
 }
 
+rollLogs() {
+	notice "Rolling over logs. Max logs is $backupLogsMax."
+	for (( i=backupLogsMax; i>=1; i-- )); do
+		prevLog=$((i-1))
+		if [[ $prevLog -eq 0 ]]; then
+			srcLog="$logPATH"
+    		else
+			srcLog="$logPATH.$prev"
+		fi
+    		destLog="$logPATH.$i"
+
+	 	if [[ -f "$srcLog" ]]; then
+			mv -f "$srcLog" "$destLog"
+		fi
+ 	done
+	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
+}
 
 downloadLatestLabels() {
 
@@ -871,14 +892,19 @@ OptionsString=$CLIOptions[-1]
 
 ## Starting up. Need to log options, etc
 
-## check for log location, writable, roll if over $size?
+## check log is writable and rollover if over size
 if [[ -w "$logPATH" ]] then
-# exists and writable
-	echo "Patchomator starting $(date)" >> "$logPATH"
+#	#exists and writable check size
+	fileSize=$(stat -f%z "$logPATH" 2>/dev/null)
+ 	if (( fileSize > logSizeMax )); then
+		rollLogs
+  	fi
 elif [[ ! -f "$logPATH" ]] then
-# doesn't exist
+#	#doesn't exist
 	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
 fi
+
+echo "Patchomator starting: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 
 notice "Option Count ${#InstallomatorOptions[@]}"
 notice "Installomator Options:"
@@ -1373,10 +1399,7 @@ then
 
 	echo "quit:" >> $DialogPATH
 	
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
-
-	
-	exit 0
+	finishAndExit 0
 	
 fi
 
@@ -1393,6 +1416,6 @@ if (( ! (${#quietmode} && ${#writeconfig}) )); then
 	displayConfig
 fi
 
-echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+finishAndExit 0
 
 #### That's a wrap. Don't forget to tip your server. You don't have to go home, but you can't stay here.
