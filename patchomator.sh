@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# Version: 2025.06.05 - 1.1.3b2
+# Version: 2025.06.09 - 1.1.3b3
 # "April Foolish"
 
 #  Gigantic Thanks to:
@@ -148,8 +148,6 @@ BOLD=$(tput bold 2>/dev/null)
 RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
-
-skipDiscovery=false
 
 [[ -f /usr/local/bin/dialog ]] && DialogPATH="/var/tmp/dialog.log" || DialogPATH="/dev/null"
 
@@ -321,7 +319,7 @@ OfferToInstall() {
 		else
 			echo "${BOLD}Continuing without Installomator.${RESET}"
 			# disable installs
-			if [[ $installmode ]]
+			if [[ $installmode == true ]]
 			then
 				fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
 				\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
@@ -698,7 +696,7 @@ SCRIPT_EOF
 				# add replaced label to Ignored list
 				ignoredLabelsArray["$exists"]=1
 
-				if [[ ${#writeconfig} -eq 1 ]]
+				if (( ${#writeconfig} ))
 				then
 					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$defaultConfigfile"
 					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $defaultConfigfile
@@ -714,7 +712,7 @@ SCRIPT_EOF
 		fi					
 	else
 		configArray[$appPath]=$foundLabel
-		if [[ ${#writeconfig} -eq 1 ]]
+		if (( ${#writeconfig} ))
 		then
 			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$defaultConfigfile"
 		fi
@@ -740,7 +738,7 @@ SCRIPT_EOF
 # --install
 queueLabel() {
 	# add to queue if in install mode
-	if [[ $installmode ]]
+	if [[ $installmode == true ]]
 	then
 		notice "Queueing $label_name"
 
@@ -811,7 +809,7 @@ fi
 
 
 # prevent patchomator modify the content of the managed config
-if [[ $defaultConfigfile == $managedConfigfile ]] && [[ ${#writeconfig} -eq 1 ]]
+if [[ $defaultConfigfile == $managedConfigfile ]] && (( ${#writeconfig} ))
 then
 	fatal "You should not manualy overwrite ${YELLOW}$managedConfigfile${RESET}"
 fi
@@ -912,7 +910,7 @@ if (( ! ${#quietmode} )); then
 	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
 fi
 
-if [[ -f $defaultConfigfile ]] && [[ ${#writeconfig} -ne 1 ]] 
+if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
 then
 	infoOut "Reading existing configuration for ignored/required labels"
 
@@ -945,7 +943,7 @@ fi
 
 # Create Config file on --write, or if none already exists
 # --write
-if [[ ${#writeconfig} -eq 1 ]] || ! [[ -f $defaultConfigfile ]]
+if (( ${#writeconfig} )) || ! [[ -f $defaultConfigfile ]]
 then
 	notice "Writing Config"
 
@@ -1005,16 +1003,17 @@ if (( ${#installmode} ))
 then
 	installmode=true
 	skipDiscovery=true
-	skipVerify=true
+
 
 else 
-	installmode=""  ##MAKE IT BLANK SO [[ $installmode ]] WORKS AS FALSE
+	installmode=false
+ 	skipDiscovery=false
 
 	# can't do discovery without the labels files.
 	checkLabels
 
 	# speed up the discovery phase.
-	if [[ ${#skipVerify} -eq 1 ]]
+	if (( ${#skipVerify} ))
 	then
 		skipVerify=true
 	else
@@ -1038,7 +1037,7 @@ checkInstallomator
 
 
 
-if [[ $installmode ]]
+if [[ $installmode == true ]]
 then
 
 	# Check your privilege
@@ -1063,12 +1062,12 @@ then
 		then
 			notice "[CLI] Requiring ${requiredLabel}."
 
-			if [[ ${#writeconfig} -eq 1 ]]
+			if (( ${#writeconfig} ))
 			then
 				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $defaultConfigfile	
 			fi
 
-			if [[ $installmode ]]
+			if [[ $installmode == true ]]
 			then
 				label_name=$requiredLabel
 				queueLabel # add to installer queue
@@ -1356,7 +1355,7 @@ done
 # install mode. Requires root and Installomator, checks for existing config. 
 # --install
 
-if [[ $installmode ]]
+if [[ $installmode == true ]]
 then
 	
 	IFS=' '
@@ -1390,7 +1389,7 @@ else
 	infoOut "${BOLD}Done.${RESET}\n"
 fi
 
-if (( ! ${#quietmode} )); then
+if (( ! (${#quietmode} && ${#writeconfig}) )); then
 	displayConfig
 fi
 
