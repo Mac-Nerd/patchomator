@@ -164,22 +164,20 @@ usage() {
 	echo "\n${BOLD}Usage:${RESET}"
 	echo "\tpatchomator.sh [ -ryqvIh  -c configfile  -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
-	echo "\tScans the system for installed apps and matches them to Installomator labels."
-	
+	echo "\tScans the system for installed apps and matches them to Installomator labels."	
 	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\""
-	echo "\t${BOLD}--required \"space-separated list of labels to require\""
-	
+	echo "\t${BOLD}--required \"space-separated list of labels to require\""	
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
-	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
+	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}$defaultConfigfile${RESET}"
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location."
-	echo "\t${BOLD}--everywhere\t${RESET} Search the entire filesystem for matching apps."
+	echo "\t${BOLD}-e | --everywhere\t${RESET} Search the entire filesystem for matching apps."
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-s | --skipverify \t${RESET} Skips the signature verification step for discovered apps. ${BOLD}Does not skip verifying on installation.${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
-	echo "\t${BOLD}--options \"option1=value option2=value ...\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
+	echo "\t${BOLD}-o | --options \"option1=value option2=value ...\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator${RESET}"
 	exit 0
@@ -789,9 +787,9 @@ zparseopts -D -E -F -K -- \
 -pathtoinstallomator:=InstallomatorPATH p:=InstallomatorPATH \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
--mdm:=MDMName \
--everywhere=everywhere \
--options:=CLIOptions \
+-mdm:=MDMName m:=MDMName \
+-everywhere=everywhere e=everywhere \
+-options:=CLIOptions o:=CLIOptions \
 || fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
@@ -801,19 +799,19 @@ zparseopts -D -E -F -K -- \
 # -v --verbose
 # -r --read
 # -w --write
+# -c --config <config file path>
 # -s --skip-verify
-# -c / --config <config file path>
-# -p / --pathtoinstallomator <installomator path>
-# New in 1.1
-# --mdm [one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ] Any other Mac MDM solutions worth mentioning?
-# --options "list of installomator options to pass through"
+# -p --pathtoinstallomator <installomator path>
+# -m --mdm [one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ] Any other Mac MDM solutions worth mentioning?
+# -e --everywhere
+# -o --options "list of installomator options to pass through"
 
 
 
 
 # Show usage
-# --help
-if [[ ${#showhelp} -gt 0 ]]
+# -h --help
+if (( ${#showhelp} ))
 then
 	usage
 fi
@@ -967,70 +965,16 @@ then
 fi
 
 
-# Create Config file on --write, or if none already exists
-# --write
-if (( ${#writeconfig} )) || ! [[ -f $defaultConfigfile ]]
-then
-	notice "Writing Config"
-
-	if [[ -d $defaultConfigfile ]] # common mistake, select a directory, not a filename
-	then
-		fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
-	fi
-
-	if ! [[ -f $defaultConfigfile ]] # no existing config
-	then
-		if [[ -d "$(dirname $defaultConfigfile)" ]] 
-		# directory exists
-		then			
-			if [[ -w "$(dirname $defaultConfigfile)" ]]
-			#directory is writable
-			then
-				infoOut "No existing config file at $defaultConfigfile. Creating one now."
-
-			else
-				# exists, but not writable
-				fatal "$(dirname $defaultConfigfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-			fi
-		else
-		# directory doesn't exist
-			infoOut "No existing config file at $defaultConfigfile. Creating one now."
-			makepath "$defaultConfigfile"
-		fi
-		# creates a blank plist
-		plutil -create xml1 "$defaultConfigfile" || fatal "Unable to create $defaultConfigfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-
-	else # file exists
-
-		if [[ -w $defaultConfigfile ]]
-		then 
-			infoOut "Refreshing $defaultConfigfile"
-			# create blank plist or empty an existing one
-			/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}" &>/dev/null
-	
-		else
-			fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-		fi	
-	
-	fi
-	
-	# add sections for label arrays
-	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
-	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
-
-fi
-# END --write
-
-
-
 # --install
-# some functions act differently based on install vs discovery/read
+# some functions act differently based on install vs discovery/read/write
 if (( ${#installmode} ))
 then
 	installmode=true
 	skipDiscovery=true
-
-
+	if (( ${#writeconfig} )); then
+		infoOut "Writing config and discovery are disabled when installing."
+  		writeconfig=""
+ 	fi
 else 
 	installmode=false
  	skipDiscovery=false
@@ -1049,6 +993,56 @@ else
 fi
 
 
+# Create Config file if none already exists
+if ! [[ -f $defaultConfigfile ]] # no existing config
+then
+	if [[ -d $defaultConfigfile ]] # common mistake, select a directory, not a filename
+	then
+		fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
+	fi
+
+	if [[ -d "$(dirname $defaultConfigfile)" ]]  # directory exists
+	then			
+		if [[ -w "$(dirname $defaultConfigfile)" ]]  #directory is writable
+		then
+			infoOut "No existing config file at $defaultConfigfile. Creating one now."
+		else
+			# exists, but not writable
+			fatal "$(dirname $defaultConfigfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+		fi
+	else  # directory doesn't exist
+		infoOut "The path to $defaultConfigfile does not exist. Making path and creating file now."
+		makepath "$defaultConfigfile"
+	fi
+ 
+	# creates a blank plist
+ 	plutil -create xml1 "$defaultConfigfile" || fatal "Unable to create $defaultConfigfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+ 	
+  	# add sections for label arrays
+	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
+fi
+ 
+# Clear config to write
+if (( ${#writeconfig} ))
+then
+	notice "Writing Config"
+
+	if ! [[ -w $defaultConfigfile ]]
+	then 
+		fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+	fi
+ 
+	infoOut "Refreshing $defaultConfigfile"
+ 
+ 	# empty the existing plist
+	/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}" &>/dev/null
+ 
+	# add sections for label arrays
+	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
+
+fi
 
 
 # MOAR Functions! miscellaneous pieces referenced in the occasional label
