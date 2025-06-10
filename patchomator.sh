@@ -188,7 +188,7 @@ usage() {
 caffexit () {
 	kill "$caffeinatepid"
 	echo "quit:" >> $DialogPATH
-	finishAndexit $1
+	finishAndExit $1
 }
 
 finishAndExit () {
