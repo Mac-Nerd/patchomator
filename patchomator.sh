@@ -273,7 +273,7 @@ checkInstallomator() {
 	then
 		error "Installomator was found, but is out of date. You can update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
 
-		if [[ ${#noninteractive} -eq 1 ]]
+		if (( ${#noninteractive} ))
 		then
 			notice "Running in non-interactive mode. Skipping Installomator update."
 		else
@@ -287,7 +287,7 @@ checkInstallomator() {
 	
 		LatestInstallomator=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
 
-		if [[ ${#noninteractive} -eq 1 ]]
+		if (( ${#noninteractive} ))
 		then
 			notice "Running in non-interactive mode. Skipping Installomator install."
 		else
@@ -571,7 +571,7 @@ FindAppFromLabel() {
 		elif [[ -d "/Applications/Utilities/$appName" ]]; then
 			applist="/Applications/Utilities/$appName"
 		else
-			if [[ ${#everywhere} -eq 1 ]]; then
+			if (( ${#everywhere} )); then
 				applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
 			else
 				applist=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
@@ -695,12 +695,12 @@ SCRIPT_EOF
 		exists="$configArray[$appPath]"
 
 		infoOut "${appPath} already linked to label ${exists}."
-		if [[ ${#noninteractive} -eq 1 ]]
+		if (( ${#noninteractive} ))
 		then
 			infoOut "\t${BOLD}Skipping.${RESET}"
 			return
 		else
-			infoOut -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
+			echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
 			read replaceLabel 
 
 			if [[ $replaceLabel =~ '[Yy]' ]]
