@@ -1,10 +1,10 @@
 #!/bin/zsh
 
-# Version: 2025.05.30 - 1.1.3
+# Version: 2025.06.09 - 1.1.3b3
 # "April Foolish"
 
 #  Gigantic Thanks to:
-#   rondelltron
+#	rondelltron
 #	Skinflint
 
 #  Big Thanks to:
@@ -28,8 +28,12 @@
 # apps installed in other weird locations should be identifiable by their pkg receipt.
 
 # Recent Changes/Fixes:
+# Consistent messages for exiting and logging
+# Set maximum rolled logs to 5 by default. Configured via backupLogsMax
+# Roll logs if greater than 1MB by default. Configured via logSizeMax in bytes
+# Use appCustomVersion from label file for a check
 # Detect Swift Dialog
-# Skinflint - fixed my broken updates. Specifically, remove extra spaces, and use requiredLabelsList
+# remove extra spaces, and use requiredLabelsList
 # 1.1.2 Installomator 10.8 version check 
 # Only search for apps in /Applications by default, optionally --everywhere
 # Passing installomator options with spaces in.
@@ -118,6 +122,8 @@ elif [[ -z $LOGGING ]]; then
 fi
 
 logPATH="/private/var/log/Patchomator.log"
+backupLogsMax=5
+logSizeMax=$((1024 * 1024))  # 1 MB in bytes
 
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
@@ -149,8 +155,6 @@ RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
 
-skipDiscovery=false
-
 [[ -f /usr/local/bin/dialog ]] && DialogPATH="/var/tmp/dialog.log" || DialogPATH="/dev/null"
 
 #######################################
@@ -160,22 +164,20 @@ usage() {
 	echo "\n${BOLD}Usage:${RESET}"
 	echo "\tpatchomator.sh [ -ryqvIh  -c configfile  -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
-	echo "\tScans the system for installed apps and matches them to Installomator labels."
-	
+	echo "\tScans the system for installed apps and matches them to Installomator labels."	
 	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\""
-	echo "\t${BOLD}--required \"space-separated list of labels to require\""
-	
+	echo "\t${BOLD}--required \"space-separated list of labels to require\""	
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
-	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}/Library/Application Support/Patchomator/patchomator.plist${RESET}"
+	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file. \n\tDefault path ${YELLOW}$defaultConfigfile${RESET}"
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location."
-	echo "\t${BOLD}--everywhere\t${RESET} Search the entire filesystem for matching apps."
+	echo "\t${BOLD}-e | --everywhere\t${RESET} Search the entire filesystem for matching apps."
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
 	echo "\t${BOLD}-v | --verbose \t${RESET} Verbose mode. Logs more information to stdout. Overrides ${BOLD}--quiet${RESET}"
 	echo "\t${BOLD}-s | --skipverify \t${RESET} Skips the signature verification step for discovered apps. ${BOLD}Does not skip verifying on installation.${RESET}"
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
-	echo "\t${BOLD}--options \"option1=value option2=value ...\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
+	echo "\t${BOLD}-o | --options \"option1=value option2=value ...\"${RESET}\n\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit.\n"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator${RESET}"
 	exit 0
@@ -183,10 +185,13 @@ usage() {
 
 caffexit () {
 	kill "$caffeinatepid"
-
 	echo "quit:" >> $DialogPATH
+	finishAndExit $1
+}
 
-	exit $1
+finishAndExit () {
+	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+ 	exit $1
 }
 
 makepath() { # creates the full path to a file, but not the file itself
@@ -200,7 +205,7 @@ notice() { # verbose mode
 }
 
 infoOut() { # normal messages
-	if ! [[ ${#quietmode} -eq 1 ]]; then
+	if (( ! ${#quietmode} )); then
 		echo "$1" | tee -a "$logPATH"
 		echo "progresstext: $1" >> $DialogPATH
 	fi
@@ -215,9 +220,7 @@ fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
 	echo "quit:" >> $DialogPATH
 
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
-
-	exit 1
+ 	finishAndExit 1
 }
 
 # --read 
@@ -252,10 +255,7 @@ displayConfig() {
 
 	echo "quit:" >> $DialogPATH
 
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" >> "$logPATH"
-
-	exit 0
-
+ 	finishAndExit 0
 }
 
 checkInstallomator() {
@@ -273,7 +273,7 @@ checkInstallomator() {
 	then
 		error "Installomator was found, but is out of date. You can update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
 
-		if [[ ${#noninteractive} -eq 1 ]]
+		if (( ${#noninteractive} ))
 		then
 			notice "Running in non-interactive mode. Skipping Installomator update."
 		else
@@ -287,7 +287,7 @@ checkInstallomator() {
 	
 		LatestInstallomator=$(curl --silent --fail "https://api.github.com/repos/Installomator/Installomator/releases/latest" | awk -F '"' "/browser_download_url/ && /pkg\"/ { print \$4; exit }")
 
-		if [[ ${#noninteractive} -eq 1 ]]
+		if (( ${#noninteractive} ))
 		then
 			notice "Running in non-interactive mode. Skipping Installomator install."
 		else
@@ -321,7 +321,7 @@ OfferToInstall() {
 		else
 			echo "${BOLD}Continuing without Installomator.${RESET}"
 			# disable installs
-			if [[ $installmode ]]
+			if [[ $installmode == true ]]
 			then
 				fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
 				\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
@@ -418,6 +418,23 @@ dialogReset() {
 	echo "progress: reset"  >> $DialogPATH
 }
 
+rollLogs() {
+	notice "Rolling over logs. Max logs is $backupLogsMax."
+	for (( i=backupLogsMax; i>=1; i-- )); do
+		prevLog=$((i-1))
+		if [[ $prevLog -eq 0 ]]; then
+			srcLog="$logPATH"
+    		else
+			srcLog="$logPATH.$prev"
+		fi
+    		destLog="$logPATH.$i"
+
+	 	if [[ -f "$srcLog" ]]; then
+			mv -f "$srcLog" "$destLog"
+		fi
+ 	done
+	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
+}
 
 downloadLatestLabels() {
 
@@ -480,12 +497,10 @@ doInstallations() {
 		${InstallomatorPATH} ${label} ${InstallomatorOptionsString}
 		if [ $? != 0 ]; then
 			error "Error installing ${label}. Exit code $?"
-			let errorCount++
 		fi
 	done
 
-	echo "Errors: $errorCount"
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+	infoOut "Errors: $errorCount"
 	caffexit $errorCount
 
 }
@@ -494,48 +509,79 @@ doInstallations() {
 FindAppFromLabel() {
 # appname label_name packageID
 	label_name=$1
-	appversion=""
+	installLocation=""
+ 	applist=""
 
+	notice "Label: $label_name"
+  
 	if [ -z "$appName" ]; then
 		# when not given derive from name
 		appName="$name.app"
 	fi
-
-	# shortcut: pkgs contains a version number, if it's installed then we don't have to parse the plist. 
+	
+	# if the appversion is already set, there is an appCustomVersion function defined
+ 	# check the funtion to see if it uses defaults read for an Info.plist for the app
+  	# if that exists, we can parse the file path from the function
+   
+ 	if [[ -n "$appversion" ]]; then
+		if echo "$appCustomVersion" | grep -q 'Contents/Info\.plist'; then
+    			installLocation=$(echo "$appCustomVersion" | sed -n 's|.*defaults read *"\{0,1\}\([^"]\{1,\}\)/Contents/Info.plist.*|\1|p')
+       			if [[ -z "$installLocation" ]]; then
+    				installLocation=$(awk '
+					/defaults read/ {
+						path = $0
+						gsub(/.*read "/, "", path)
+						sub(/\/Contents\/Info.plist.*/, "", path)
+						print path
+						exit
+					}' <<< "$appCustomVersion")
+     			fi
+			if [[ -d "$installLocation" ]]; then
+   				notice "Found: ${installLocation}"
+				applist="$installLocation"
+   			fi
+    		fi
+	fi
+ 
+	# shortcut: pkgs contains a version number, if it's installed then we don't have to search the HD for the file
 	# still need to confirm it's installed, tho. Receipts can be unreliable.
-	if [[ "$packageID" != "" ]]
-	then
-		notice "Searching system for $packageID"
-		
+ 
+ 	if [[ -n "$packageID" ]] && [[ -z "$applist" ]]; then
+       		notice "Searching system for $packageID"
 		appversion="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 pkg-version | tail -1 | sed -E 's/.*>([0-9.]*)<.*/\1/g')"
-		
-		if [[ -n $appversion ]]; then
-			notice "Label: $label_name"
-			notice "--- found packageID $packageID version $appversion installed"
-			InstalledLabelsArray+=( "$label_name" )
-		fi
-	else 
-		notice "Searching system for $appName"
-	fi
+  		if [[ -n "$appversion" ]]; then
+     			notice "--- found packageID $packageID version $appversion installed"
+			installLocation="$(pkgutil --pkg-info-plist ${packageID} 2>/dev/null | grep -A 1 install-location | tail -1 | sed -E 's/.*>(.*)<.*/\1/g')"
+   			for ext in .app .plugin .prefPane .framework .kext; do
+				if [ -d "/${installLocation}${ext}" ]; then
+					notice "Found: /${installLocation}${ext}"
+     					applist="/${installLocation}${ext}"
+					break
+				fi
+			done
+     		fi
+	fi 	
 
-	
-	# get app in /Applications, or /Applications/Utilities, or find using Spotlight
-	
-	if [[ -d "/Applications/$appName" ]]; then
-		applist="/Applications/$appName"
-	elif [[ -d "/Applications/Utilities/$appName" ]]; then
-		applist="/Applications/Utilities/$appName"
-	else
-		if [[ ${#everywhere} -eq 1 ]]; then
-			applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+	# get app in /Applications, or /Applications/Utilities, or find using Spotlight if not already found
+
+ 	if [[ -z "$applist" ]]; then
+  		notice "Searching system for $appName"
+		if [[ -d "/Applications/$appName" ]]; then
+			applist="/Applications/$appName"
+		elif [[ -d "/Applications/Utilities/$appName" ]]; then
+			applist="/Applications/Utilities/$appName"
 		else
-			applist=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
-		fi	
-		# can't install things in /System/Applications, and probably shouldn't look in /Users
-		# apps installed in other weird locations should be identifiable by their pkg receipt.
-		# random files named *.app were potentially coming up in the list. Now it has to be an actual app bundle
+			if (( ${#everywhere} )); then
+				applist=$(mdfind "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+			else
+				applist=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemFSName == '$appName' && kMDItemContentType == 'com.apple.application-bundle'" -0 )
+			fi	
+			# can't install things in /System/Applications, and probably shouldn't look in /Users
+			# apps installed in other weird locations should be identifiable by their pkg receipt.
+			# random files named *.app were potentially coming up in the list. Now it has to be an actual app bundle
+		fi
 	fi
-	
+ 
 	appPathArray=( ${(0)applist} )
 
 	if [[ ${#appPathArray} -gt 0 ]]
@@ -549,7 +595,7 @@ FindAppFromLabel() {
 			
 			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey" 2> /dev/null)
 
-			infoOut "Found $appName version $appversion"
+			infoOut "Found $name version $appversion"
 
 			notice "Label: $label_name"
 			notice "--- found app at $installedAppPath"
@@ -570,15 +616,6 @@ FindAppFromLabel() {
 		fi
 
 	fi
-
-	# clear for next iteration
-	expectedTeamID=""
-	packageID=""
-	name=""
-	appName=""
-	current_label=""
-	versionKey="CFBundleShortVersionString"
-
 }
 
 
@@ -601,20 +638,38 @@ verifyApp() {
 			# verify with spctl
 			appVerify=$(spctl -a -vv "$appPath" 2>&1 )
 			appVerifyStatus=$(echo $?)
-			teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
 
-			if [[ $appVerifyStatus -ne 0 ]]
-			then
-				error "Error verifying $appPath: Returned $appVerifyStatus"
-				return
+			# If there is no usable signature and the app type is .plugin, then try another method
+   			# Found useful for JRE since Oracle does not sign JRE Plugin, but does sign in bin
+      
+			if [[ "$appVerify" == *"no usable signature" ]] && [[ "$appPath" == *".plugin" ]]; then
+   				teamIdentifiers="$(find "$appPath/Contents/Home/Bin" -type f -exec codesign -dv {} 2>&1 \; | grep TeamIdentifier | sort -u)"
+       				if [[ -n "$teamIdentifiers" ]]; then
+       					idCount=$(printf "%s\n" "$teamIdentifiers" | wc -l | tr -d ' ')
+	    				if ((idCount > 1)); then
+						error "Error verifying $appPath"
+      						notice "Team IDs do not match: expected: $expectedTeamID, found multiple IDs in plugin Home/Bin directory"
+	    					return
+      					fi
+					teamID="${teamIdentifiers#*=}"
+     				else
+	 				error "Error verifying $appPath"
+      					notice "Team IDs do not match: expected: $expectedTeamID, found no IDs in plugin Home/Bin directory"
+	   				return
+				fi
+   			else
+      				if [[ $appVerifyStatus -ne 0 ]]; then
+					error "Error verifying $appPath: Returned $appVerifyStatus"
+					return
+				fi
+				teamID=$(echo $appVerify | awk '/origin=/ {print $NF }' | tr -d '()' )
 			fi
 
-			if [ "$expectedTeamID" != "$teamID" ]
-			then
+   			if [ "$expectedTeamID" != "$teamID" ]; then
 				error "Error verifying $appPath"
 				notice "Team IDs do not match: expected: $expectedTeamID, found $teamID"
 				return
-			fi
+     			fi
 
 		fi
 
@@ -640,9 +695,9 @@ SCRIPT_EOF
 		exists="$configArray[$appPath]"
 
 		infoOut "${appPath} already linked to label ${exists}."
-		if [[ ${#noninteractive} -eq 1 ]]
+		if (( ${#noninteractive} ))
 		then
-			echo "\t${BOLD}Skipping.${RESET}"
+			infoOut "\t${BOLD}Skipping.${RESET}"
 			return
 		else
 			echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
@@ -650,8 +705,8 @@ SCRIPT_EOF
 
 			if [[ $replaceLabel =~ '[Yy]' ]]
 			then
-				echo "\t${BOLD}Replacing.${RESET}"
-				configArray[$appPath]=$label_name
+				infoOut "\t${BOLD}Replacing.${RESET}"
+				configArray[$appPath]=$foundLabel
 				
 				# Remove duplicate label already in queue:
 				labelsList=$(echo "$labelsList" | sed s/"$exists "//)
@@ -659,14 +714,14 @@ SCRIPT_EOF
 				# add replaced label to Ignored list
 				ignoredLabelsArray["$exists"]=1
 
-				if [[ ${#writeconfig} -eq 1 ]]
+				if (( ${#writeconfig} ))
 				then
 					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$defaultConfigfile"
 					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $defaultConfigfile
 				fi
 
 			else
-				echo "\t${BOLD}Skipping.${RESET}"
+				infoOut "\t${BOLD}Skipping.${RESET}"
 				# add skipped label to Ignored list
 				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $defaultConfigfile
 
@@ -675,7 +730,7 @@ SCRIPT_EOF
 		fi					
 	else
 		configArray[$appPath]=$foundLabel
-		if [[ ${#writeconfig} -eq 1 ]]
+		if (( ${#writeconfig} ))
 		then
 			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$defaultConfigfile"
 		fi
@@ -701,7 +756,7 @@ SCRIPT_EOF
 # --install
 queueLabel() {
 	# add to queue if in install mode
-	if [[ $installmode ]]
+	if [[ $installmode == true ]]
 	then
 		notice "Queueing $label_name"
 
@@ -731,9 +786,9 @@ zparseopts -D -E -F -K -- \
 -pathtoinstallomator:=InstallomatorPATH p:=InstallomatorPATH \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
--mdm:=MDMName \
--everywhere=everywhere \
--options:=CLIOptions \
+-mdm:=MDMName m:=MDMName \
+-everywhere=everywhere e=everywhere \
+-options:=CLIOptions o:=CLIOptions \
 || fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
@@ -743,19 +798,19 @@ zparseopts -D -E -F -K -- \
 # -v --verbose
 # -r --read
 # -w --write
+# -c --config <config file path>
 # -s --skip-verify
-# -c / --config <config file path>
-# -p / --pathtoinstallomator <installomator path>
-# New in 1.1
-# --mdm [one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ] Any other Mac MDM solutions worth mentioning?
-# --options "list of installomator options to pass through"
+# -p --pathtoinstallomator <installomator path>
+# -m --mdm [one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ] Any other Mac MDM solutions worth mentioning?
+# -e --everywhere
+# -o --options "list of installomator options to pass through"
 
 
 
 
 # Show usage
-# --help
-if [[ ${#showhelp} -gt 0 ]]
+# -h --help
+if (( ${#showhelp} ))
 then
 	usage
 fi
@@ -772,7 +827,7 @@ fi
 
 
 # prevent patchomator modify the content of the managed config
-if [[ $defaultConfigfile == $managedConfigfile ]] && [[ ${#writeconfig} -eq 1 ]]
+if [[ $defaultConfigfile == $managedConfigfile ]] && (( ${#writeconfig} ))
 then
 	fatal "You should not manualy overwrite ${YELLOW}$managedConfigfile${RESET}"
 fi
@@ -834,14 +889,19 @@ OptionsString=$CLIOptions[-1]
 
 ## Starting up. Need to log options, etc
 
-## check for log location, writable, roll if over $size?
+## check log is writable and rollover if over size
 if [[ -w "$logPATH" ]] then
-# exists and writable
-	echo "Patchomator starting $(date)" >> "$logPATH"
+#	#exists and writable check size
+	fileSize=$(stat -f%z "$logPATH" 2>/dev/null)
+ 	if (( fileSize > logSizeMax )); then
+		rollLogs
+  	fi
 elif [[ ! -f "$logPATH" ]] then
-# doesn't exist
+#	#doesn't exist
 	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
 fi
+
+echo "Patchomator starting: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 
 notice "Option Count ${#InstallomatorOptions[@]}"
 notice "Installomator Options:"
@@ -869,11 +929,11 @@ fi
 
 ## initiate swiftdialog if we're doing more than just reading config.
 
-if ! [[ ${#quietmode} -eq 1 ]]; then
+if (( ! ${#quietmode} )); then
 	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
 fi
 
-if [[ -f $defaultConfigfile ]] && [[ ${#writeconfig} -ne 1 ]] 
+if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
 then
 	infoOut "Reading existing configuration for ignored/required labels"
 
@@ -904,78 +964,25 @@ then
 fi
 
 
-# Create Config file on --write, or if none already exists
-# --write
-if [[ ${#writeconfig} -eq 1 ]] || ! [[ -f $defaultConfigfile ]]
-then
-	notice "Writing Config"
-
-	if [[ -d $defaultConfigfile ]] # common mistake, select a directory, not a filename
-	then
-		fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
-	fi
-
-	if ! [[ -f $defaultConfigfile ]] # no existing config
-	then
-		if [[ -d "$(dirname $defaultConfigfile)" ]] 
-		# directory exists
-		then			
-			if [[ -w "$(dirname $defaultConfigfile)" ]]
-			#directory is writable
-			then
-				infoOut "No existing config file at $defaultConfigfile. Creating one now."
-
-			else
-				# exists, but not writable
-				fatal "$(dirname $defaultConfigfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-			fi
-		else
-		# directory doesn't exist
-			infoOut "No existing config file at $defaultConfigfile. Creating one now."
-			makepath "$defaultConfigfile"
-		fi
-		# creates a blank plist
-		plutil -create xml1 "$defaultConfigfile" || fatal "Unable to create $defaultConfigfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-
-	else # file exists
-
-		if [[ -w $defaultConfigfile ]]
-		then 
-			infoOut "Refreshing $defaultConfigfile"
-			# create blank plist or empty an existing one
-			/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}"
-	
-		else
-			fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
-		fi	
-	
-	fi
-	
-	# add sections for label arrays
-	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
-	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
-
-fi
-# END --write
-
-
-
 # --install
-# some functions act differently based on install vs discovery/read
-if [[ ${#installmode} -eq 1 ]]
+# some functions act differently based on install vs discovery/read/write
+if (( ${#installmode} ))
 then
 	installmode=true
 	skipDiscovery=true
-	skipVerify=true
-
+	if (( ${#writeconfig} )); then
+		infoOut "Writing config and discovery are disabled when installing."
+  		writeconfig=""
+ 	fi
 else 
 	installmode=false
+ 	skipDiscovery=false
 
 	# can't do discovery without the labels files.
 	checkLabels
 
 	# speed up the discovery phase.
-	if [[ ${#skipVerify} -eq 1 ]]
+	if (( ${#skipVerify} ))
 	then
 		skipVerify=true
 	else
@@ -985,6 +992,56 @@ else
 fi
 
 
+# Create Config file if none already exists
+if ! [[ -f $defaultConfigfile ]] # no existing config
+then
+	if [[ -d $defaultConfigfile ]] # common mistake, select a directory, not a filename
+	then
+		fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
+	fi
+
+	if [[ -d "$(dirname $defaultConfigfile)" ]]  # directory exists
+	then			
+		if [[ -w "$(dirname $defaultConfigfile)" ]]  #directory is writable
+		then
+			infoOut "No existing config file at $defaultConfigfile. Creating one now."
+		else
+			# exists, but not writable
+			fatal "$(dirname $defaultConfigfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+		fi
+	else  # directory doesn't exist
+		infoOut "The path to $defaultConfigfile does not exist. Making path and creating file now."
+		makepath "$defaultConfigfile"
+	fi
+ 
+	# creates a blank plist
+ 	plutil -create xml1 "$defaultConfigfile" || fatal "Unable to create $defaultConfigfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+ 	
+  	# add sections for label arrays
+	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
+fi
+ 
+# Clear config to write
+if (( ${#writeconfig} ))
+then
+	notice "Writing Config"
+
+	if ! [[ -w $defaultConfigfile ]]
+	then 
+		fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+	fi
+ 
+	infoOut "Refreshing $defaultConfigfile"
+ 
+ 	# empty the existing plist
+	/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}" &>/dev/null
+ 
+	# add sections for label arrays
+	/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"	
+	/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"	
+
+fi
 
 
 # MOAR Functions! miscellaneous pieces referenced in the occasional label
@@ -999,7 +1056,7 @@ checkInstallomator
 
 
 
-if [[ $installmode ]]
+if [[ $installmode == true ]]
 then
 
 	# Check your privilege
@@ -1024,12 +1081,12 @@ then
 		then
 			notice "[CLI] Requiring ${requiredLabel}."
 
-			if [[ ${#writeconfig} -eq 1 ]]
+			if (( ${#writeconfig} ))
 			then
 				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $defaultConfigfile	
 			fi
 
-			if [[ $installmode ]]
+			if [[ $installmode == true ]]
 			then
 				label_name=$requiredLabel
 				queueLabel # add to installer queue
@@ -1156,7 +1213,9 @@ then
 		name=""
 		appName=""
 		current_label=""
-		versionKey="CFBundleShortVersionString"
+		versionKey=""
+  		appCustomVersion=""
+    		appversion=""
 
 
 ## for discovery phase, use grep: '^([a-z0-9\_-]*)(\)|\|\\)$' 
@@ -1165,20 +1224,40 @@ then
 
 
 		# set variables
-		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 
-		eval $(grep -E -m1 '^\s*packageID' "$labelFragment")
-		eval $(grep -E -m1 '^\s*expectedTeamID' "$labelFragment")
-				
-		if [[ -n $expectedTeamID ]]
-		then
-			infoOut "Processing labels in $labelFile."
-		 	FindAppFromLabel "$labelFile"
-		else
-			infoOut "Error in $labelFile. No Team ID."	
-		fi
-		 
-	done
 
+		eval $(grep -E -m1 '^\s*expectedTeamID' "$labelFragment") 2>/dev/null
+				
+		if [[ -z $expectedTeamID ]]
+		then
+			infoOut "Error in $labelFile. No Team ID."
+   			continue
+		fi
+
+  		eval $(grep -E -m1 '^\s*name=' "$labelFragment") 2>/dev/null
+		eval $(grep -E -m1 '^\s*packageID' "$labelFragment") 2>/dev/null
+		eval $(grep -E -m1 '^\s*versionKey' "$labelFragment") 2>/dev/null
+		versionKey="${versionKey:-CFBundleShortVersionString}"
+
+		if grep -q '^\s*appCustomVersion\s*()' "$labelFragment"
+  		then
+			appCustomVersion=$(grep -E -m1 '^\s*appCustomVersion' "$labelFragment" | sed -E 's/^.*\(\)[[:space:]]*\{[[:space:]]*(.*)[[:space:]]*\}/\1/')
+			if [[ -z "$appCustomVersion" ]] || [[ "$appCustomVersion" == *"{"$ ]]
+   			then
+				appCustomVersion=$(awk '
+					/^[[:space:]]*appCustomVersion[[:space:]]*\(\)[[:space:]]*\{/ { inside=1; next }
+					inside {
+						if ($0 ~ /^[[:space:]]*\}/) { inside=0; exit }
+						print
+					}' "$labelFragment")
+			fi
+   			if [[ ! "$appCustomVersion" =~ ^[[:space:]]*strings ]]; then
+				appversion=$(eval "$appCustomVersion" 2>/dev/null)
+    			fi
+		fi
+
+		infoOut "Processing label $labelFile."
+		FindAppFromLabel "$labelFile"   
+	done
 else
 # read existing config. One label per line. Send labels to Installomator for updates.
 	infoOut "Existing config found at $defaultConfigfile."
@@ -1295,7 +1374,7 @@ done
 # install mode. Requires root and Installomator, checks for existing config. 
 # --install
 
-if [[ $installmode ]]
+if [[ $installmode == true ]]
 then
 	
 	IFS=' '
@@ -1313,10 +1392,7 @@ then
 
 	echo "quit:" >> $DialogPATH
 	
-	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
-
-	
-	exit 0
+	finishAndExit 0
 	
 fi
 
@@ -1324,13 +1400,15 @@ fi
 
 if [ "$errorCount" -gt 0 ]
 then
-	echo "${BOLD}Completed with $errorCount errors.${RESET}\n"
+	infoOut "${BOLD}Completed with $errorCount errors.${RESET}\n"
 else
-	echo "${BOLD}Done.${RESET}\n"
+	infoOut "${BOLD}Done.${RESET}\n"
 fi
 
-displayConfig
+if (( ! (${#quietmode} && ${#writeconfig}) )); then
+	displayConfig
+fi
 
-echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+finishAndExit 0
 
 #### That's a wrap. Don't forget to tip your server. You don't have to go home, but you can't stay here.
