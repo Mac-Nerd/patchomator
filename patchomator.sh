@@ -723,8 +723,10 @@ SCRIPT_EOF
 			else
 				infoOut "\t${BOLD}Skipping.${RESET}"
 				# add skipped label to Ignored list
-				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $defaultConfigfile
-
+				if (( ${#writeconfig} ))
+				then
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $defaultConfigfile
+				fi
 				return
 			fi
 		fi					
@@ -830,6 +832,12 @@ fi
 if [[ $defaultConfigfile == $managedConfigfile ]] && (( ${#writeconfig} ))
 then
 	fatal "You should not manualy overwrite ${YELLOW}$managedConfigfile${RESET}"
+fi
+
+# check if config file is writeable if writeconfig is true
+if [[ ! -w $defaultConfigfile ]] && (( ${#writeconfig} ))
+then
+	fatal "Configuration file ${YELLOW}$defaultConfigfile${RESET} is not writeable. Try again with ${YELLOW}sudo${RESET}"
 fi
 
 InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
