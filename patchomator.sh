@@ -706,7 +706,7 @@ SCRIPT_EOF
 			if [[ $replaceLabel =~ '[Yy]' ]]
 			then
 				infoOut "\t${BOLD}Replacing.${RESET}"
-				configArray[$appPath]=$label_name
+				configArray[$appPath]=$foundLabel
 				
 				# Remove duplicate label already in queue:
 				labelsList=$(echo "$labelsList" | sed s/"$exists "//)
