@@ -162,7 +162,12 @@ RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
 
-[[ -f /usr/local/bin/dialog ]] && DialogPATH="/var/tmp/dialog.log" || DialogPATH="/dev/null"
+if [[ -f /usr/local/bin/dialog ]]; then
+	DialogPATH="/var/tmp/patch_dialog.log"
+ 	rm -rf $DialogPATH
+else
+	DialogPATH="/dev/null"
+fi
 
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
 	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
@@ -201,7 +206,7 @@ usage() {
 
 caffexit () {
 	kill "$caffeinatepid"
-	echo "quit:" >> $DialogPATH
+	(( ${#quietmode} )) || echo "quit:" >> $DialogPATH
 	finishAndExit $1
 }
 
@@ -234,7 +239,7 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
-	echo "quit:" >> $DialogPATH
+	(( ${#quietmode} )) || echo "quit:" >> $DialogPATH
 	finishAndExit 1
 }
 
@@ -1087,8 +1092,17 @@ fi
 
 ## initiate swiftdialog if we're doing more than just reading config.
 
-if (( ! ${#quietmode} )); then
-	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
+if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]]; then
+	/usr/local/bin/dialog --title "Patchomator Progress" \
+		--message "Starting Patchomator." \
+		--icon "/usr/local/Installomator/patch-o-mater-icon.png" \
+		--mini \
+		--progress 100 \
+		--button1text "..." \
+		--ontop \
+		--movable \
+		--commandfile $DialogPATH & dialogPID=$!
+	sleep 0.1
 fi
 
 # --install
@@ -1404,7 +1418,6 @@ do
 	dialogPercent $processedLabels $totalFoundLabels
 
 	if [[ -n ${requiredLabelsPath["$appPath"]} ]] && [[ "${requiredLabelsPath[\"$appPath\"]}" != "$foundLabel" ]]; then
-		infoOut "\t${BOLD}Skipping.${RESET}"
 		notice "$appPath assigned to required label ${requiredLabelsPath[\"$appPath\"]}"
 		continue
 	fi
