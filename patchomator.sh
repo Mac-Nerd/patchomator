@@ -256,9 +256,10 @@ displayConfig() {
 
 		echo "\n${BOLD}Required Labels:${RESET}"
 		printf "%s\n" ${(o)${(k)requiredLabelsArray//\"/}}
+		echo ""
 	fi
 
-	echo "quit:" >> $DialogPATH
+	(( ${#readconfig} )) || echo "quit:" >> $DialogPATH
 
 	finishAndExit 0
 }
@@ -414,15 +415,21 @@ checkLabels() {
 }
 
 dialogProgress() {
-	echo "message: $1" >> $DialogPATH
-	echo "progress: reset" >> $DialogPATH
+	if (( ! ${#quietmode} )); then
+		echo "message: $1" >> $DialogPATH
+		echo "progress: reset" >> $DialogPATH
+	fi
 }
 
 dialogPercent() { # steps / max
-	echo "progress: $((100*$1/$2))" >> $DialogPATH
+	if (( ! ${#quietmode} )); then
+		echo "progress: $((100*$1/$2))" >> $DialogPATH
+	fi
 }
 dialogReset() {
-	echo "progress: reset" >> $DialogPATH
+	if (( ! ${#quietmode} )); then
+		echo "progress: reset" >> $DialogPATH
+	fi
 }
 
 rollLogs() {
@@ -620,7 +627,7 @@ FindAppFromLabel() {
 				foundLabelsPackageID[$label_name]="$packageID"
 				foundLabelsVersionKey[$label_name]="$versionKey"
 
-				if [[ "${requiredLabelsArray[$label_name]}" -eq 1 ]]; then
+				if [[ ${requiredLabelsArray["$label_name"]} -eq 1 ]]; then
 					requiredLabelsPath["$installedAppPath"]="$label_name"
 				fi
 			fi
@@ -955,11 +962,9 @@ fi
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
-if [[ ${#configfile} -eq 0 ]] && [[ -f $managedConfigfile ]]
-then
+if [[ ${#configfile} -eq 0 ]] && [[ -f $managedConfigfile ]]; then
 	defaultConfigfile=$managedConfigfile
-elif [[ ${#configfile} -gt 0 ]]
-then
+elif [[ ${#configfile} -gt 0 ]]; then
 	defaultConfigfile=$configfile[-1] # either provided on the command line, or default path
 fi
 
