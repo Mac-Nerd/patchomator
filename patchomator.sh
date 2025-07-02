@@ -142,6 +142,7 @@ declare -A foundLabelsTeamID=()
 declare -A foundLabelsAppVersion=()
 declare -A foundLabelsPackageID=()
 declare -A foundLabelsVersionKey=()
+declare -A requiredLabelsPath=()
 
 # default paths
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -618,6 +619,10 @@ FindAppFromLabel() {
 				foundLabelsAppVersion[$label_name]="$appversion"
 				foundLabelsPackageID[$label_name]="$packageID"
 				foundLabelsVersionKey[$label_name]="$versionKey"
+
+				if [[ "${requiredLabelsArray[$label_name]}" -eq 1 ]]; then
+					requiredLabelsPath["$installedAppPath"]="$label_name"
+				fi
 			fi
 		fi
 	fi
@@ -752,7 +757,7 @@ verifyApp() {
 
 	[[ -n "$appversion" ]] && notice "--- Installed version: ${appversion}"
 
-	if [[ -z "$appNewVersion" ]] && grep -q '^\s*appNewVersion' "$labelFragment"; then
+	if [[ -z "$appNewVersion" ]] && grep -q '^\s*appNewVersion' "$labelFragment" && (( ! ${#quietmode} )); then
 		linesToEval="case $foundLabel in
 			$foundLabel|\
 			$(cat $labelFragment)
@@ -1227,7 +1232,7 @@ if [[ -n "$ignoredLabels" ]]
 then
 
 	ignoredLabelsList=("${(@s/ /)ignoredLabels[-1]}")
-	
+
 	notice "[CLI] Ignoring labels: $ignoredLabelsList"
 
 	for ignoredLabel in $ignoredLabelsList; do
@@ -1359,7 +1364,7 @@ else
 	labelsList+=($labelsFromConfig)
 	ignoredLabelsList+=($ignoredLabelsFromConfig)
 	requiredLabelsList+=($requiredLabelsFromConfig)
-	
+
 	# add required labels to list
 	labelsList+=($requiredLabelsList)
 
@@ -1391,10 +1396,15 @@ for foundLabel appPath in ${(kv)foundLabelsArray};
 do
 
 	let processedLabels++
-
 	dialogPercent $processedLabels $totalFoundLabels
 
-	if [[ $ignoredLabelsArray["$foundLabel"] -ne 1 ]]
+	if [[ -n ${requiredLabelsPath["$appPath"]} ]] && [[ "${requiredLabelsPath[\"$appPath\"]}" != "$foundLabel" ]]; then
+		infoOut "\t${BOLD}Skipping.${RESET}"
+		notice "$appPath assigned to required label ${requiredLabelsPath[\"$appPath\"]}"
+		continue
+	fi
+
+	if [[ $ignoredLabelsArray["$foundLabel"] -ne 1 ]];
 	then
 		expectedTeamID="${foundLabelsTeamID[$foundLabel]}"
 		appversion="${foundLabelsAppVersion[$foundLabel]}"
