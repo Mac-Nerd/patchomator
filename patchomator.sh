@@ -1081,25 +1081,6 @@ if (( ! ${#quietmode} )); then
 	[[ -f /usr/local/bin/dialog ]] && /usr/local/bin/dialog -t "Patchomator Progress" -m "Starting Patchomator." --style mini --icon "/usr/local/Installomator/patch-o-mater-icon.png" -o --progress 100 --button1text "..." & sleep .1
 fi
 
-if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
-then
-	infoOut "Reading existing configuration for labels"
-
-	# parse the config for existing labels
-	labelsFromConfig=($(defaults read "$defaultConfigfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
-	ignoredLabelsFromConfig=($(defaults read "$defaultConfigfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
-	requiredLabelsFromConfig=($(defaults read "$defaultConfigfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
-
-	for ignoredLabel in $ignoredLabelsFromConfig; do
-		[[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]] && ignoredLabelsArray["$ignoredLabel"]=1
-	done
-
-	for requiredLabel in $requiredLabelsFromConfig; do
-		[[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]] && requiredLabelsArray["$requiredLabel"]=1
-	done
-fi
-
-
 # --install
 # some functions act differently based on install vs discovery/read/write
 if (( ${#installmode} ))
@@ -1117,6 +1098,24 @@ else
 	checkLabels
 fi
 
+
+if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
+then
+	infoOut "Reading existing configuration for labels"
+
+	# parse the config for existing labels
+	labelsFromConfig=($(defaults read "$defaultConfigfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$defaultConfigfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$defaultConfigfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+
+	for ignoredLabel in $ignoredLabelsFromConfig; do
+		[[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]] && ignoredLabelsArray["$ignoredLabel"]=1
+	done
+
+	for requiredLabel in $requiredLabelsFromConfig; do
+		[[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]] && requiredLabelsArray["$requiredLabel"]=1
+	done
+fi
 
 
 if (( ${#writeconfig} )); then
