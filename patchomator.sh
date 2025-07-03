@@ -522,8 +522,9 @@ doInstallations() {
 		fi
 
 		${InstallomatorPATH} ${label} ${InstallomatorOptionsString}
-		if [ $? != 0 ]; then
-			error "Error installing ${label}. Exit code $?"
+		installomatorStatus=$(echo $?)
+		if [ $installomatorStatus != 0 ]; then
+			error "Error installing ${label}. Exit code $installomatorStatus\n"
 		fi
 	done
 
