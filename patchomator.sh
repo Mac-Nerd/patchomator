@@ -206,12 +206,12 @@ usage() {
 
 caffexit () {
 	kill "$caffeinatepid"
-	(( ${#quietmode} )) || echo "quit:" >> $DialogPATH
 	finishAndExit $1
 }
 
 finishAndExit () {
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+	(( ${#quietmode} )) || (( ${#readconfig} )) || echo "quit:" >> $DialogPATH
 	exit $1
 }
 
@@ -239,21 +239,20 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
-	(( ${#quietmode} )) || echo "quit:" >> $DialogPATH
 	finishAndExit 1
 }
 
 # --read
 # --write
 displayConfig() {
-	# if a config file exits and in write or read config mode then read from file
+	# if a config file exists and write or read config mode then read from file
 	if [[ -f $defaultConfigfile ]] && ( (( ${#writeconfig} )) || (( ${#readconfig} )) )
 	then
 		echo "\n${BOLD}Currently configured labels:${RESET}"
 		column -t -s "=;\"\"" <<< $(defaults read "$defaultConfigfile" | tr -d "{}()\"")
 	else
-		echo "\n${BOLD}Found labels:${RESET}"
 		# if no config was saved, show the results of the discovery process
+		echo "\n${BOLD}Found labels:${RESET}"
 		printf "%s\n" ${(o)configArray}
 
 		echo "\n${BOLD}Ignored Labels:${RESET}"
@@ -263,8 +262,6 @@ displayConfig() {
 		printf "%s\n" ${(o)${(k)requiredLabelsArray//\"/}}
 		echo ""
 	fi
-
-	(( ${#readconfig} )) || echo "quit:" >> $DialogPATH
 
 	finishAndExit 0
 }
@@ -405,7 +402,7 @@ checkLabels() {
 		then
 			if [[ -w "$patchomatorPath" ]]
 			then
-				error "Package labels are out of date. Last updated ${labelsAge} days ago. Attempting to download from https://github.com/installomator/"
+				infoOut "Package labels are out of date. Last updated ${labelsAge} days ago. Attempting to download from https://github.com/installomator/"
 				downloadLatestLabels
 			else
 				fatal "Package labels are out of date. Last updated ${labelsAge} days ago. Re-run patchomator with sudo to update them."
@@ -464,13 +461,13 @@ downloadLatestLabels() {
 	latestURL=$(curl -sSL -o - "https://api.github.com/repos/Installomator/Installomator/releases/latest" | grep tarball_url | awk '{gsub(/[",]/,"")}{print $2}') # remove quotes and comma from the returned string
 	#eg "https://api.github.com/repos/Installomator/Installomator/tarball/v10.3"
 
-
-	tarPath="$patchomatorPath/installomator.latest.tar.gz"
+	temptarDirectory=$( mktemp -d )
+	tarPath="$temptarDirectory/installomator.latest.tar.gz"
 
 	notice "Downloading ${latestURL} to ${tarPath}"
 	dialogPercent 2 5
 
-	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${patchomatorPath} is writable or re-run as root."
+	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${temptarDirectory} is writable or re-run as root."
 
 	dialogPercent 3 5
 
@@ -479,6 +476,9 @@ downloadLatestLabels() {
 	touch "${fragmentsPATH}/labels/"
 	dialogPercent 5 5
 
+	# Remove the temporary working directory when done
+	notice "Deleting working directory '$temptarDirectory' and its contents"
+	rm -Rf "$temptarDirectory"
 }
 
 # --install
@@ -1446,9 +1446,7 @@ fi
 # install mode. Requires root and Installomator, checks for existing config.
 # --install
 
-if [[ $installmode == true ]]
-then
-
+if [[ $installmode == true ]]; then
 	IFS=' '
 
 	queuedLabelsArray=("${(@s/ /)labelsList}")
@@ -1462,10 +1460,7 @@ then
 		infoOut "Nothing to do." # inbox zero
 	fi
 
-	echo "quit:" >> $DialogPATH
-
 	finishAndExit 0
-
 fi
 
 # end install mode
