@@ -165,8 +165,8 @@ YELLOW=$(tput setaf 3 2>/dev/null)
 if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
  	rm -rf $DialogPATH
-else
-	DialogPATH="/dev/null"
+	touch "$DialogPATH" 2> /dev/null && chmod a+rw "$DialogPATH" || error "$DialogPATH not writable."
+	[[ -w "$DialogPATH" ]] || DialogPATH=""
 fi
 
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
@@ -262,8 +262,6 @@ displayConfig() {
 		printf "%s\n" ${(o)${(k)requiredLabelsArray//\"/}}
 		echo ""
 	fi
-
-	finishAndExit 0
 }
 
 checkInstallomator() {
@@ -1079,7 +1077,6 @@ done
 # --read
 if (( ${#readconfig} ))
 then
-
 	notice "Reading Config"
 
 	if ! [[ -f $defaultConfigfile ]]
@@ -1089,11 +1086,12 @@ then
 		displayConfig
 	fi
 
+	finishAndExit 0
 fi
 
 ## initiate swiftdialog if we're doing more than just reading config.
 
-if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]]; then
+if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ -w "$DialogPATH" ]]; then
 	/usr/local/bin/dialog --title "Patchomator Progress" \
 		--message "Starting Patchomator." \
 		--icon "/usr/local/Installomator/patch-o-mater-icon.png" \
