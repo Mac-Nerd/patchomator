@@ -154,7 +154,7 @@ managedConfigfile=("/Library/Managed Preferences/com.mac-nerd.patchomator.plist"
 
 # "realpath" doesn't exist on Monterey.
 patchomatorPath="/usr/local/Installomator/"
-fragmentsPATH=("$patchomatorPath/fragments")
+fragmentsPATH=("${patchomatorPath}fragments")
 
 # Pretty print, ignored if no terminal (eg, running via MDM)
 BOLD=$(tput bold 2>/dev/null)
@@ -166,8 +166,9 @@ if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
  	rm -rf $DialogPATH
 	touch "$DialogPATH" 2> /dev/null && chmod a+rw "$DialogPATH" || error "$DialogPATH not writable."
-	[[ -w "$DialogPATH" ]] || DialogPATH=""
 fi
+
+[[ -w "$DialogPATH" ]] || DialogPATH="/dev/null"
 
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
 	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
@@ -329,7 +330,7 @@ OfferToInstall() {
 		else
 			echo "${BOLD}Continuing without Installomator.${RESET}"
 			# disable installs
-			if [[ $installmode == true ]]
+			if (( ${#installmode} ))
 			then
 				fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
 				\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
@@ -631,7 +632,7 @@ FindAppFromLabel() {
 				foundLabelsPackageID[$label_name]="$packageID"
 				foundLabelsVersionKey[$label_name]="$versionKey"
 
-				if [[ ${requiredLabelsArray["$label_name"]} -eq 1 ]]; then
+				if [[ "${requiredLabelsArray[$label_name]}" == 1 ]]; then
 					requiredLabelsPath["$installedAppPath"]="$label_name"
 				fi
 			fi
@@ -790,6 +791,7 @@ verifyApp() {
 		notice "--- Newest version: ${appNewVersion}"
 		if is-at-least "$appNewVersion" "$appversion"; then
 			infoOut "--- Latest version installed."
+			appUpToDateList+=($foundLabel)
 		else
 			infoOut "--- Newer version available."
 			let appNeedsUpdates++
@@ -797,6 +799,10 @@ verifyApp() {
 	else
 		infoOut "--- Unable to find newest version."
 		let appNeedsUpdates++
+	fi
+
+	if (( ${#installmode} )); then
+		labelsList+="$foundLabel "
 	fi
 
 	let uniqueAppTotal++
@@ -1089,9 +1095,12 @@ then
 	finishAndExit 0
 fi
 
+# can't do anything without the label files.
+checkLabels
+
 ## initiate swiftdialog if we're doing more than just reading config.
 
-if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ -w "$DialogPATH" ]]; then
+if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" != "/dev/null" ]]; then
 	/usr/local/bin/dialog --title "Patchomator Progress" \
 		--message "Starting Patchomator." \
 		--icon "/usr/local/Installomator/patch-o-mater-icon.png" \
@@ -1103,24 +1112,6 @@ if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ -w "$DialogPATH
 		--commandfile $DialogPATH & dialogPID=$!
 	sleep 0.1
 fi
-
-# --install
-# some functions act differently based on install vs discovery/read/write
-if (( ${#installmode} ))
-then
-	installmode=true
-	skipDiscovery=true
-	if (( ${#writeconfig} )); then
-		infoOut "${BOLD}Writing config and discovery are disabled when installing.${RESET}"
-		writeconfig=""
-	fi
-else
-	installmode=false
-	skipDiscovery=false
-	# can't do discovery without the labels files.
-	checkLabels
-fi
-
 
 if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
 then
@@ -1200,47 +1191,33 @@ source "$fragmentsPATH/functions.sh"
 checkInstallomator
 
 
-if [[ $installmode == true ]]
-then
-
+if (( ${#installmode} )); then
 	# Check your privilege
 	if ! $IAMROOT
 	then
 		fatal "Install mode must be run with root/sudo privileges. Re-run Patchomator with\n\t ${YELLOW}sudo zsh patchomator.sh --install${RESET}"
 	fi
-
 fi
 
 
 # --required
 if [[ -n "$requiredLabels" ]]
 then
-
 	requiredLabelsList=("${(@s/ /)requiredLabels[-1]}")
-	notice "Required labels: $requiredLabelsList"
+	notice "[CLI] Requiring labels: $requiredLabelsList"
 
 	for requiredLabel in $requiredLabelsList; do
 		[[ ${requiredLabelsArray["$requiredLabel"]} == 1 ]] && continue
 		if [[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]]
 		then
-			notice "[CLI] Requiring ${requiredLabel}."
-
 			if (( ${#writeconfig} ))
 			then
 				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $defaultConfigfile
 			fi
-
-			if [[ $installmode == true ]]; then
-				notice "Queueing $requiredLabel"
-				labelsList+="$requiredLabel "
-			fi
-
 			requiredLabelsArray[$requiredLabel]=1
-
 		else
 			error "No such label ${requiredLabel}"
 		fi
-
 	done
 
 fi
@@ -1311,9 +1288,8 @@ IFS=$'\n'
 # get app name, label name, packageID
 
 
-if [[ $skipDiscovery != true ]]
-then
-
+if [[ $skipDiscovery != true ]]; then
+	# Discovery
 	numFragments=$(ls "$fragmentsPATH"/labels/*.sh | wc -l | xargs)
 	processedFragments=0
 
@@ -1377,75 +1353,81 @@ then
 		appCustomVersion=""
 		appversion=""
 	done
-else
+
+	totalFoundLabels=${#foundLabelsArray}
+	processedLabels=0
+	appNeedsUpdates=0
+	appUpToDateList=()
+	uniqueAppTotal=0
+
+	dialogProgress "Processing $totalFoundLabels discovered labels"
+
+	# for each app found, check version and verify
+	for foundLabel appPath in ${(kv)foundLabelsArray};
+	do
+		let processedLabels++
+		dialogPercent $processedLabels $totalFoundLabels
+
+		if [[ -n ${requiredLabelsPath["$appPath"]} ]] && [[ "${requiredLabelsPath[\"$appPath\"]}" != "$foundLabel" ]]; then
+			notice "$appPath assigned to required label ${requiredLabelsPath[\"$appPath\"]}"
+			continue
+		fi
+
+		if [[ $ignoredLabelsArray["$foundLabel"] -ne 1 ]]; then
+			expectedTeamID="${foundLabelsTeamID[$foundLabel]}"
+			appversion="${foundLabelsAppVersion[$foundLabel]}"
+			packageID="${foundLabelsPackageID[$foundLabel]}"
+			versionKey="${foundLabelsVersionKey[$foundLabel]}"
+			labelFragment="${fragmentsPATH}/labels/${foundLabel}.sh"
+
+			if [[ -n $expectedTeamID ]] || (( ${#skipVerify} )); then
+				verifyApp "$foundLabel" "$appPath"
+			fi
+		fi
+	done
+
+	if (( appNeedsUpdates > 0 )); then
+		infoOut "${BOLD}$appNeedsUpdates of the $uniqueAppTotal found labels need updates.${RESET}"
+	elif (( processedLabels > 0 )); then
+		infoOut "${BOLD}None of the found apps need updates.${RESET}"
+	fi
+fi
+# end discovery
+
+# install mode. Requires root and Installomator
+# --install
+if (( ${#installmode} )); then
+	IFS=' '
 	#add variables discovered earlier to these lists
-	labelsList+=($labelsFromConfig)
+	if [[ $skipDiscovery == true ]]; then
+		labelsList+=($labelsFromConfig)
+	fi
 	ignoredLabelsList+=($ignoredLabelsFromConfig)
 	requiredLabelsList+=($requiredLabelsFromConfig)
 
 	# add required labels to list
 	labelsList+=($requiredLabelsList)
 
- 	# deduplicate labels and remove extra spacing with awk
+	# deduplicate labels and remove extra spacing with awk
 	ignoredLabelsList=($(tr ' ' '\n' <<< "${ignoredLabelsList[@]}" | sort -u | awk 'NF' | tr '\n' ' '))
 	requiredLabelsList=($(tr ' ' '\n' <<< "${requiredLabelsList[@]}" | sort -u | awk 'NF' | tr '\n' ' '))
 	labelsList=($(tr ' ' '\n' <<< "${labelsList[@]}" | sort -u | awk 'NF' | tr '\n' ' '))
+	appUpToDateList=($(tr ' ' '\n' <<< "${appUpToDateList[@]}" | sort -u | awk 'NF' | tr '\n' ' '))
 
-	# remove ignored labels
-	labelsList=("${labelsList:|ignoredLabelsList}")
+	# remove ignored labels and up to date labels
+	filteredLabelsList=("${ignoredLabelsList[@]}" "${appUpToDateList[@]}") 
+	installLabelsList=()
+	for label in "${labelsList[@]}"; do
+		if [[ ! " ${filteredLabelsList[@]} " =~ " ${label} " ]]; then
+			installLabelsList+=("$label")
+		fi
+	done
+	labelsList=("${installLabelsList[@]}")
 
+	[[ ${#appUpToDateList} -gt 0 ]] && notice "Up to date apps: $appUpToDateList"
 	notice "Labels to install: $labelsList"
 	notice "Ignoring labels: $ignoredLabelsList"
 	notice "Required labels: $requiredLabelsList"
-
-fi
-# end discovery
-
-
-totalFoundLabels=${#foundLabelsArray}
-processedLabels=0
-appNeedsUpdates=0
-uniqueAppTotal=0
-
-dialogProgress "Processing $totalFoundLabels discovered labels"
-
-# for each app found, check version and verify
-for foundLabel appPath in ${(kv)foundLabelsArray};
-do
-
-	let processedLabels++
-	dialogPercent $processedLabels $totalFoundLabels
-
-	if [[ -n ${requiredLabelsPath["$appPath"]} ]] && [[ "${requiredLabelsPath[\"$appPath\"]}" != "$foundLabel" ]]; then
-		notice "$appPath assigned to required label ${requiredLabelsPath[\"$appPath\"]}"
-		continue
-	fi
-
-	if [[ $ignoredLabelsArray["$foundLabel"] -ne 1 ]];
-	then
-		expectedTeamID="${foundLabelsTeamID[$foundLabel]}"
-		appversion="${foundLabelsAppVersion[$foundLabel]}"
-		packageID="${foundLabelsPackageID[$foundLabel]}"
-		versionKey="${foundLabelsVersionKey[$foundLabel]}"
-		labelFragment="${fragmentsPATH}/labels/${foundLabel}.sh"
-
-		if [[ -n $expectedTeamID ]] || (( ${#skipVerify} )); then
-			verifyApp "$foundLabel" "$appPath"
-		fi
-	fi
-done
-
-if (( appNeedsUpdates > 0 )); then
-	infoOut "${BOLD}$appNeedsUpdates of the $uniqueAppTotal found labels need updates.${RESET}"
-elif (( processedLabels > 0 )); then
-	infoOut "${BOLD}None of the found apps need updates.${RESET}"
-fi
-
-# install mode. Requires root and Installomator, checks for existing config.
-# --install
-
-if [[ $installmode == true ]]; then
-	IFS=' '
 
 	queuedLabelsArray=("${(@s/ /)labelsList}")
 	numLabels=${#queuedLabelsArray[@]}
