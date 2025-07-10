@@ -150,8 +150,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 defaultConfigfile=("/Library/Application Support/Patchomator/patchomator.plist")
 managedConfigfile=("/Library/Managed Preferences/com.mac-nerd.patchomator.plist")
-patchomatorPath="/usr/local/Installomator/"
-fragmentsPATH=("${patchomatorPath}fragments")
+patchomatorPath="${${0:A:h}:-/usr/local/Installomator}"
+fragmentsPATH=("${patchomatorPath}/fragments")
 lockfile="/tmp/com.mac-nerd.patchomator.lock"
 
 # Pretty print, ignored if no terminal (eg, running via MDM)
