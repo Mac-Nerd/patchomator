@@ -150,17 +150,22 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
 defaultConfigfile=("/Library/Application Support/Patchomator/patchomator.plist")
 managedConfigfile=("/Library/Managed Preferences/com.mac-nerd.patchomator.plist")
-#patchomatorPath=$(dirname $(realpath $0)) # default install at /usr/local/Installomator/
-
-# "realpath" doesn't exist on Monterey.
 patchomatorPath="/usr/local/Installomator/"
 fragmentsPATH=("${patchomatorPath}fragments")
+lockfile="/tmp/com.mac-nerd.patchomator.lock"
 
 # Pretty print, ignored if no terminal (eg, running via MDM)
 BOLD=$(tput bold 2>/dev/null)
 RESET=$(tput sgr0 2>/dev/null)
 RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
+
+if [ -e "$lockfile" ] && kill -0 "$(cat "$lockfile")" 2>/dev/null; then
+    echo "Script is already running with PID $(cat "$lockfile"). Exiting."
+    exit 1
+fi
+
+echo $$ > "$lockfile"
 
 if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
@@ -210,6 +215,7 @@ usage() {
 finishAndExit () {
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 	(( ${#quietmode} )) || (( ${#readconfig} )) || echo "quit:" >> $DialogPATH
+	rm -f "$lockfile"
 	exit $1
 }
 
