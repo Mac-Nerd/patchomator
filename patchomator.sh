@@ -742,6 +742,14 @@ verifyApp() {
 				# remove item from unique tally
 				let uniqueAppTotal--
 
+				# remove item from update tally
+				CURRENTIFS="$IFS"
+				IFS=' '
+				if [[ ! " ${appUpToDateList[@]} " =~ " ${exists} " ]]; then
+					let appNeedsUpdates--
+				fi
+				IFS="$CURRENTIFS"
+
 				if (( ${#writeconfig} ))
 				then
 					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$defaultConfigfile"
