@@ -1250,7 +1250,7 @@ then
 		if [[ "$lowerLabel" == "all" ]]; then
 			notice "[CLI] Ignored=all. Skipping discovery."
 			skipDiscovery=true
-			break
+			continue
 		fi
 		if [[ "$lowerLabel" == "recommendedignores" ]]; then
 			notice "[CLI] Also ignoring labels: $recommendedIgnores"
