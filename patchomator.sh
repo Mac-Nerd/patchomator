@@ -1428,14 +1428,13 @@ if (( ${#installmode} )); then
 			installLabelsList+=("$label")
 		fi
 	done
-	labelsList=("${installLabelsList[@]}")
 
 	[[ ${#appUpToDateList} -gt 0 ]] && notice "Up to date apps: $appUpToDateList"
 	notice "Labels to install: $labelsList"
 	notice "Ignoring labels: $ignoredLabelsList"
 	notice "Required labels: $requiredLabelsList"
 
-	queuedLabelsArray=("${(@s/ /)labelsList}")
+	queuedLabelsArray=("${installLabelsList[@]}")
 	numLabels=${#queuedLabelsArray[@]}
 
 	if [[ $numLabels > 0 ]]
