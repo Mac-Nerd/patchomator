@@ -1,8 +1,8 @@
 #!/bin/zsh
 
 VERSION="1.1.4"
-VERSIONDATE="2025-06-27"
-VERSIONNAME="JuneBug Free - Hopefully"
+VERSIONDATE="2025-07-10"
+VERSIONNAME="Julyght Speed"
 
 # Gigantic Thanks to:
 #	rondelltron
@@ -26,9 +26,9 @@ VERSIONNAME="JuneBug Free - Hopefully"
 
 # To Do:
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
-# apps installed in other weird locations should be identifiable by their pkg receipt.
 
 # Recent Changes/Fixes:
+# Speed increases
 # Script Checks
 # Version output from --version
 # Consistent messages for exiting and logging
@@ -174,6 +174,8 @@ recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" 
 	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
  	"microsoftonedrivesuprod" "microsoftoutlook-monthly")
 
+trap cleanup INT TERM
+
 #######################################
 # Functions
 
@@ -205,15 +207,16 @@ usage() {
 	exit 0
 }
 
-caffexit () {
-	kill "$caffeinatepid"
-	finishAndExit $1
-}
-
 finishAndExit () {
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 	(( ${#quietmode} )) || (( ${#readconfig} )) || echo "quit:" >> $DialogPATH
 	exit $1
+}
+
+cleanup() {
+	kill -0 "$caffeinatepid" 2>/dev/null && kill "$caffeinatepid" 2>/dev/null
+	kill -0 "$dialogPID" 2>/dev/null && kill "$dialogPID" 2>/dev/null
+	finishAndExit 1
 }
 
 makepath() { # creates the full path to a file, but not the file itself
@@ -527,9 +530,7 @@ doInstallations() {
 		fi
 	done
 
-	infoOut "Errors: $errorCount"
-	caffexit $errorCount
-
+	kill "$caffeinatepid" 2>/dev/null
 }
 
 
@@ -1121,8 +1122,9 @@ if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" !
 		--button1text "..." \
 		--ontop \
 		--movable \
-		--commandfile $DialogPATH & dialogPID=$!
+		--commandfile "$DialogPATH" > /dev/null 2>&1 &
 	sleep 0.1
+	dialogPID=$(pgrep -f "$DialogPATH" | tail -n 1)
 fi
 
 if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
@@ -1293,6 +1295,10 @@ if [[ $skipDiscovery != true ]]; then
 
 	dialogProgress "Processing $numFragments labels"
 
+	# No sleeping
+	/usr/bin/caffeinate -d -i -m -u &
+	caffeinatepid=$!
+
 	for labelFragment in "$fragmentsPATH"/labels/*.sh; do
 
 		let processedFragments++
@@ -1389,6 +1395,8 @@ if [[ $skipDiscovery != true ]]; then
 	elif (( processedLabels > 0 )); then
 		infoOut "${BOLD}None of the found apps need updates.${RESET}"
 	fi
+
+	kill "$caffeinatepid" 2>/dev/null
 fi
 # end discovery
 
@@ -1437,8 +1445,6 @@ if (( ${#installmode} )); then
 	else
 		infoOut "Nothing to do." # inbox zero
 	fi
-
-	finishAndExit 0
 fi
 
 # end install mode
@@ -1450,7 +1456,7 @@ else
 	infoOut "${BOLD}Done.${RESET}\n"
 fi
 
-if (( ! (${#quietmode} && ${#writeconfig}) )); then
+if (( ! (${#quietmode} && ${#writeconfig}) )) && (( ! ${#installmode} )); then
 	displayConfig
 fi
 
