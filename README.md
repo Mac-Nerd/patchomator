@@ -48,8 +48,11 @@ Displays the current configuration, based on an existing configuration file at t
  `-I` | `--install`
 Scans the system for installed apps and matches them to Installomator labels. Launches Installomator to update any that are not up to date. If an existing configuration file is found, the ignored and required will be added or removed from the list of found apps. *Test before use.*
 
+ `-I` | `--install` with `--ignored "ALL"`
+Skips scanning the system for installed apps and launches Installomator to update all apps in a config file. If there is no config file, this will do nothing. *Test before use.*  
+<br />
 
-*Additional switches.*
+#### Additional switches
 
 `--version`
 Displays the current version of this script.
