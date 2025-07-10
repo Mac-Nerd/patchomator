@@ -737,6 +737,10 @@ verifyApp() {
 
 				# add replaced label to Ignored list
 				ignoredLabelsArray["$exists"]=1
+				ignoredLabelsList+=("$exists")
+
+				# remove item from unique tally
+				let uniqueAppTotal--
 
 				if (( ${#writeconfig} ))
 				then
@@ -1263,32 +1267,18 @@ then
 	done
 fi
 
-
-# discovery mode
-# the main attraction.
-
-
-# DISCOVERY PHASE
-
 # get current user
 currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
-
 uid=$(id -u "$currentUser")
-
 notice "Current User: $currentUser (UID $uid)"
 
 targetDir="/"
-versionKey="CFBundleShortVersionString"
-
-IFS=$'\n'
 
 ### MAIN EVENT
-
-# for each .sh file in fragments/labels/ strip out the switch/case lines and any comments.
-# get app name, label name, packageID
-
+# DISCOVERY PHASE
 
 if [[ $skipDiscovery != true ]]; then
+	IFS=$'\n'
 	# Discovery
 	numFragments=$(ls "$fragmentsPATH"/labels/*.sh | wc -l | xargs)
 	processedFragments=0
@@ -1415,7 +1405,7 @@ if (( ${#installmode} )); then
 	appUpToDateList=($(tr ' ' '\n' <<< "${appUpToDateList[@]}" | sort -u | awk 'NF' | tr '\n' ' '))
 
 	# remove ignored labels and up to date labels
-	filteredLabelsList=("${ignoredLabelsList[@]}" "${appUpToDateList[@]}") 
+	filteredLabelsList=("${ignoredLabelsList[@]}" "${appUpToDateList[@]}")
 	installLabelsList=()
 	for label in "${labelsList[@]}"; do
 		if [[ ! " ${filteredLabelsList[@]} " =~ " ${label} " ]]; then
