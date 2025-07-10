@@ -427,7 +427,7 @@ Verifying: /Applications/Firefox.app
 <b>Replace label firefoxpkg with firefoxpkg_intl? [y/N] n
 	Skipping.</b>
 [...]
-<b>3 of the 18 found labels need updates.
+<b>3 of the 18 found labels need updates.</b>
 Passing 3 labels to Installomator: adobeacrobatprodc adobecreativeclouddesktop googlechromepkg
 Performing installations.
 Installing adobeacrobatprodc...
