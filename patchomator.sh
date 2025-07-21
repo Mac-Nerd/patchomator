@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 VERSION="1.1.4"
-VERSIONDATE="2025-07-10"
+VERSIONDATE="2025-07-21"
 VERSIONNAME="Julyght Speed"
 
 # Gigantic Thanks to:
@@ -191,9 +191,9 @@ usage() {
 	echo "\tScans the system for installed apps and matches them to Installomator labels.\n"
 	echo "\t${BOLD}--version \t${RESET} Show version and exit."
 	echo "\t${BOLD}--fullversion \t${RESET} Show full version and exit."
-	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Show version and exit."
+	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Attempts to access the specified proxy and sets the ALLPROXY environment variable upon success."
 	echo "\t${BOLD}--required \"space-separated list of labels to require\""
-	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\"${RESET}\n\t\t If list contains ${YELLOW}'ALL'${RESET} then discovery will be skipped\n\t\t If list contains ${YELLOW}'RECOMMENDEDIGNORES'${RESET} then the recommended list of ignores will be appended.\n"
+	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\"${RESET}\n\t\t If list contains ${YELLOW}'ALL'${RESET} then discovery will be skipped\n\t\t If list contains ${YELLOW}'RECOMMENDED'${RESET} then the recommended list of ignores will be appended.\n"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit."
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
 	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file."
@@ -984,8 +984,7 @@ if (( ${#showversion} )); then
 fi
 
 if (( ${#showfullversion} )); then
-	echo "$VERSIONDATE - $VERSION"
-	echo "$VERSIONNAME"
+	echo "Patchomator: version $VERSION ($VERSIONDATE)"
 	exit 0
 fi
 
@@ -1258,7 +1257,7 @@ then
 			skipDiscovery=true
 			continue
 		fi
-		if [[ "$lowerLabel" == "recommendedignores" ]]; then
+		if [[ "$lowerLabel" == "recommended" ]]; then
 			notice "[CLI] Also ignoring labels: $recommendedIgnores"
 			for recIgnoreLabel in $recommendedIgnores; do
 				if [[ -f "${fragmentsPATH}/labels/${recIgnoreLabel}.sh" ]]; then
