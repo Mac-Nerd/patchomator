@@ -191,7 +191,7 @@ usage() {
 	echo "\tScans the system for installed apps and matches them to Installomator labels.\n"
 	echo "\t${BOLD}--version \t${RESET} Show version and exit."
 	echo "\t${BOLD}--fullversion \t${RESET} Show full version and exit."
-	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Attempts to access the specified proxy and sets the ALLPROXY environment variable upon success."
+	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Attempts to access the specified proxy and sets the ALL_PROXY environment variable upon success."
 	echo "\t${BOLD}--required \"space-separated list of labels to require\""
 	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\"${RESET}\n\t\t If list contains ${YELLOW}'ALL'${RESET} then discovery will be skipped\n\t\t If list contains ${YELLOW}'RECOMMENDED'${RESET} then the recommended list of ignores will be appended.\n"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit."
@@ -639,7 +639,7 @@ FindAppFromLabel() {
 				foundLabelsPackageID[$label_name]="$packageID"
 				foundLabelsVersionKey[$label_name]="$versionKey"
 
-				if [[ "${requiredLabelsArray[$label_name]}" == 1 ]]; then
+				if [[ ${requiredLabelsArray["$label_name"]} == 1 ]]; then
 					requiredLabelsPath["$installedAppPath"]="$label_name"
 				fi
 			fi
@@ -1233,7 +1233,7 @@ then
 			then
 				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $defaultConfigfile
 			fi
-			requiredLabelsArray[$requiredLabel]=1
+			requiredLabelsArray["$requiredLabel"]=1
 		else
 			error "No such label ${requiredLabel}"
 		fi
