@@ -1,8 +1,7 @@
 #!/bin/zsh
 
 VERSION="1.1.4"
-VERSIONDATE="2025-07-21"
-VERSIONNAME="Julyght Speed"
+VERSIONDATE="2025-08-05"
 
 # Gigantic Thanks to:
 #	rondelltron
@@ -28,6 +27,7 @@ VERSIONNAME="Julyght Speed"
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
 
 # Recent Changes/Fixes:
+# Dialog Prompt for choices to replace labels with timeout of promptTimeoutMax variable.
 # Speed increases
 # Script Checks
 # Version output from --version
@@ -128,6 +128,7 @@ fi
 logPATH="/private/var/log/Patchomator.log"
 backupLogsMax=5
 logSizeMax=$((1024 * 1024)) # 1 MB in bytes
+defaultPromptTimeoutMax=120 #Time in seconds
 
 declare -A levels=(DEBUG 0 INFO 1 WARN 2 ERROR 3 REQ 4)
 declare -A configArray=()
@@ -147,10 +148,11 @@ declare -A requiredLabelsPath=()
 # default paths
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
-InstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
-defaultConfigfile=("/Library/Application Support/Patchomator/patchomator.plist")
-managedConfigfile=("/Library/Managed Preferences/com.mac-nerd.patchomator.plist")
+defaultInstallomatorPATH=("/usr/local/Installomator/Installomator.sh")
+defaultConfigFile=("/Library/Application Support/Patchomator/patchomator.plist")
+managedConfigFile=("/Library/Managed Preferences/com.mac-nerd.patchomator.plist")
 patchomatorPath="${${0:A:h}:-/usr/local/Installomator}"
+patchomatorIcon="${patchomatorPath}/patch-o-mater-icon.png"
 fragmentsPATH=("${patchomatorPath}/fragments")
 lockfile="/tmp/com.mac-nerd.patchomator.lock"
 
@@ -161,15 +163,15 @@ RED=$(tput setaf 1 2>/dev/null)
 YELLOW=$(tput setaf 3 2>/dev/null)
 
 if [ -e "$lockfile" ] && kill -0 "$(cat "$lockfile")" 2>/dev/null; then
-    echo "Script is already running with PID $(cat "$lockfile"). Exiting."
-    exit 1
+	echo "Script is already running with PID $(cat "$lockfile"). Exiting."
+	exit 1
 fi
 
 echo $$ > "$lockfile"
 
 if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
- 	rm -rf $DialogPATH
+	rm -f "$DialogPATH"
 	touch "$DialogPATH" 2> /dev/null && chmod a+rw "$DialogPATH" || error "$DialogPATH not writable."
 fi
 
@@ -177,7 +179,21 @@ fi
 
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
 	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
- 	"microsoftonedrivesuprod" "microsoftoutlook-monthly")
+	"microsoftonedrivesuprod" "microsoftoutlook-monthly")
+
+### Default Installomator Options:
+InstallomatorOptions=(\
+[NOTIFY]=success \
+[PROMPT_TIMEOUT]=86400 \
+[BLOCKING_PROCESS_ACTION]=tell_user \
+[IGNORE_APP_STORE_APPS]="no" \
+[SYSTEMOWNER]=0 \
+[REOPEN]="yes" \
+[INTERRUPT_DND]="yes" \
+[NOTIFY_DIALOG]=1 \
+[LOGGING]="INFO" \
+[DEBUG]=-1
+)
 
 trap cleanup INT TERM
 
@@ -186,18 +202,19 @@ trap cleanup INT TERM
 
 usage() {
 	echo "\n${BOLD}Usage:${RESET}"
-	echo "\tpatchomator.sh [ -ryqvIh -c configfile -p InstallomatorPATH ]\n"
+	echo "\tpatchomator.sh [ -ryqvIh -c ConfigFile -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels.\n"
 	echo "\t${BOLD}--version \t${RESET} Show version and exit."
 	echo "\t${BOLD}--fullversion \t${RESET} Show full version and exit."
+	echo "\t${BOLD}--icon \"path to icon.file\" \t${RESET} Set the icon file for Swift Dialog."
 	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Attempts to access the specified proxy and sets the ALL_PROXY environment variable upon success."
 	echo "\t${BOLD}--required \"space-separated list of labels to require\""
 	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\"${RESET}\n\t\t If list contains ${YELLOW}'ALL'${RESET} then discovery will be skipped\n\t\t If list contains ${YELLOW}'RECOMMENDED'${RESET} then the recommended list of ignores will be appended.\n"
 	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit."
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
 	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file."
-	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location. \n\t\tDefault path ${YELLOW}$defaultConfigfile${RESET}"
+	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location. \n\t\tDefault path ${YELLOW}$defaultConfigFile${RESET}"
 	echo "\t${BOLD}-e | --everywhere\t${RESET} Search the entire filesystem for matching apps."
 	echo "\t${BOLD}-y | --yes \t${RESET} Non-interactive mode. Accepts the default (usually nondestructive) choice at each prompt. Use with caution."
 	echo "\t${BOLD}-q | --quiet \t${RESET} Quiet mode. Minimal output."
@@ -208,6 +225,8 @@ usage() {
 	echo "\t${BOLD}-u | --updatescripts \t${RESET} Update scripts mode. This can be used with install mode to update the installomator and patchomator scripts.\n\t\tThis mode only updates scripts if they have been discovered or added to required list.${BOLD}Requires sudo${RESET}\n"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\t\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-o | --options \"option1=value option2=value ...\"${RESET}\tCommand line options passed through to Installomator.${RESET}"
+	echo "\t${BOLD}-m | --mdm \"name\"${RESET}\tOne of jamf, mosyleb, mosylem, addigy, microsoft, ws1, kandji, filewave. Changes the Swift Dialog icon to the respective MDM icon.${RESET}"
+	echo "\t${BOLD}-t | --timeout integer${RESET}\tSets the replace label timeout to specified integer. Cannot be less than 10 or over 9000 or it will default to $defaultPromptTimeoutMax seconds.${RESET}"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator${RESET}"
 	exit 0
 }
@@ -220,8 +239,17 @@ finishAndExit () {
 }
 
 cleanup() {
+	[[ -e "$tmpReplacePromptfile" ]] && rm -f "$tmpReplacePromptfile"
+	if [[ -e "$tmpReplaceDialogCommandFile" ]]; then
+		echo "quit:" >> "$tmpReplaceDialogCommandFile"
+		sleep 0.1
+		rm -f "$tmpReplaceDialogCommandFile"
+	fi
 	kill -0 "$caffeinatepid" 2>/dev/null && kill "$caffeinatepid" 2>/dev/null
 	kill -0 "$dialogPID" 2>/dev/null && kill "$dialogPID" 2>/dev/null
+	kill -0 "$cliReplacePID" 2>/dev/null && kill "$cliReplacepid" 2>/dev/null
+	kill -0 "$dialogReplacePID" 2>/dev/null && kill "$dialogReplacePID" 2>/dev/null
+	echo
 	finishAndExit 1
 }
 
@@ -242,6 +270,10 @@ infoOut() { # normal messages
 	fi
 }
 
+warning() { # warning messges
+	echo "${YELLOW}[WARN]${RESET} $1" | tee -a "$logPATH"
+}
+
 error() { # bad, but recoverable
 	echo "${BOLD}[ERROR]${RESET} $1" | tee -a "$logPATH"
 	let errorCount++
@@ -256,10 +288,10 @@ fatal() { # something bad happened.
 # --write
 displayConfig() {
 	# if a config file exists and write or read config mode then read from file
-	if [[ -f $defaultConfigfile ]] && ( (( ${#writeconfig} )) || (( ${#readconfig} )) )
+	if [[ -f "$configFile" ]] && ( (( ${#writeconfig} )) || (( ${#readconfig} )) )
 	then
 		echo "\n${BOLD}Currently configured labels:${RESET}"
-		column -t -s "=;\"\"" <<< $(defaults read "$defaultConfigfile" | tr -d "{}()\"")
+		column -t -s "=;\"\"" <<< $(defaults read "$configFile" | tr -d "{}()\"")
 	else
 		# if no config was saved, show the results of the discovery process
 		echo "\n${BOLD}Found labels:${RESET}"
@@ -280,7 +312,7 @@ checkInstallomator() {
 	# check for existence of Installomator to enable installation of updates
 	notice "Looking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
-	if ! [[ -f $InstallomatorPATH ]]
+	if [[ ! -f "$InstallomatorPATH" ]]
 	then
 		error "Installomator was not found at ${YELLOW}$InstallomatorPATH ${RESET}"
 		if (( ${#noninteractive} )); then
@@ -317,7 +349,7 @@ checkInstallomator() {
 		fi
 	fi
 
-	if (( ${#installmode} )) && ! [[ -f $InstallomatorPATH ]]; then
+	if (( ${#installmode} )) && [[ ! -f "$InstallomatorPATH" ]]; then
 		fatal "Cannot run patchomator in install mode without installomator."
 	fi
 }
@@ -495,22 +527,17 @@ doInstallations() {
 	infoOut "Performing installations."
 
 	# No sleeping
-	/usr/bin/caffeinate -d -i -m -u &
+	/usr/bin/caffeinate -d -i -m -u -w $$ -t 1800 &
 	caffeinatepid=$!
 
 	# Count errors
 	errorCount=0
 
+	# convert InstallomatorOptions array to string
 	InstallomatorOptionsString=""
-
-	if [[ -n "$OptionsString" ]]; then
-		InstallomatorOptionsString+="$OptionsString"
-	else
-		# convert InstallomatorOptions array to string
-		for key value in ${(kv)InstallomatorOptions}; do
-			InstallomatorOptionsString+=" $key=\"$value\""
-		done
-	fi
+	for key value in ${(kv)InstallomatorOptions}; do
+		InstallomatorOptionsString+=" $key=\"$value\""
+	done
 
 	installedLabels=0
 	dialogProgress "Installing $numLabels items."
@@ -647,6 +674,30 @@ FindAppFromLabel() {
 	fi
 }
 
+cliReplacePrompt() {
+	echo -n "$1"
+	read replaceLabel < /dev/tty
+	echo "$replaceLabel" > "$2"
+}
+
+dialogReplacePrompt() {
+	/usr/local/bin/dialog --title "Replace Label?" \
+		--message "$1" \
+		--icon "$swiftDialogIcon" \
+		--mini \
+		--button1text "Replace" \
+		--button2text "Skip ($promptTimeoutMax)" \
+		--ontop \
+		--moveable \
+		--position "center" \
+		--commandfile "$3" > /dev/null 2>&1
+	dialogReplaceRet=$(echo $?)
+	if [[ "$dialogReplaceRet" -eq 0 ]]; then
+		echo "y" | tee -a "$2"
+	elif [[ "$dialogReplaceRet" -eq 2 ]]; then
+		echo "n" | tee -a "$2"
+	fi
+}
 
 verifyApp() {
 	foundLabel="$1"
@@ -724,20 +775,84 @@ verifyApp() {
 	# build array of labels for the config and/or installation
 	# push label to array
 	# if in write config mode, writes to plist. Otherwise to an array.
-	if [[ -n "$configArray[$appPath]" ]]
-	then
-		exists="$configArray[$appPath]"
+	if [[ -n "$configArray[$appPath]" ]]; then
 
+		exists="$configArray[$appPath]"
 		infoOut "${appPath} already linked to label ${exists}."
-		if (( ${#noninteractive} ))
-		then
+
+		if (( ${#noninteractive} )); then
 			infoOut "\t${BOLD}Skipping.${RESET}"
 			return
 		else
-			echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
-			read replaceLabel
+			if [[ -n "$dialogPID" ]]; then
+				replaceMessageCLI="${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
+				replaceMessageGUI="Replace label ${exists} with $foundLabel?"
 
-			if [[ $replaceLabel =~ '[Yy]' ]]
+				tmpReplacePromptFile=$(mktemp)
+				tmpReplaceDialogCommandFile=$(mktemp /tmp/tmpReplaceDialog.XXXXXX)
+				chmod a+rw "$tmpReplaceDialogCommandFile"
+
+				dialogReplacePrompt "$replaceMessageGUI" "$tmpReplacePromptFile" "$tmpReplaceDialogCommandFile" &
+				sleep 0.2
+				dialogReplacePID=$(pgrep -f "$tmpReplaceDialogCommandFile" | tail -n 1)
+
+				cliReplacePrompt "$replaceMessageCLI" "$tmpReplacePromptFile" &
+				cliReplacePID=$!
+
+				echo "hide:" >> "$DialogPATH"
+
+				promptTimeoutTicks=0
+				while true; do
+					if [[ -s "$tmpReplacePromptFile" ]]; then
+						replaceLabel="$(< "$tmpReplacePromptFile")"
+						echo "quit:" >> "$tmpReplaceDialogCommandFile"
+						kill $cliReplacePID 2>/dev/null
+						kill $dialogReplacePID 2>/dev/null
+						rm -f "$tmpReplacePromptFile" "$tmpReplaceDialogCommandFile"
+						break
+					fi
+					if (( promptTimeoutTicks > promptTimeoutMax * 5 )); then
+						replaceLabel="n"
+						echo "quit:" >> "$tmpReplaceDialogCommandFile"
+						kill $cliReplacePID 2>/dev/null
+						kill $dialogReplacePID 2>/dev/null
+						rm -f "$tmpReplacePromptFile" "$tmpReplaceDialogCommandFile"
+						break
+					fi
+					sleep 0.2
+					let promptTimeoutTicks++
+					if (( promptTimeoutTicks % 5 == 0 )); then
+						promptTimeoutSeconds=$((promptTimeoutTicks / 5))
+						echo "button2text: Skip ($((promptTimeoutMax - promptTimeoutSeconds)))" >> "$tmpReplaceDialogCommandFile"
+					fi
+				done
+
+				echo "position: center" >> "$DialogPATH"
+				echo "show:" >> "$DialogPATH"
+			else
+				replaceLabel="n"
+				echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
+
+				for ((i=promptTimeoutMax; i>0; i--)); do
+					echo -ne "\r" && tput el
+					echo -ne "\r${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N($i)]${RESET} "
+
+					if read -t 1 -k 1 char; then
+						if [[ "$char" =~ [Yy] ]]; then
+							replaceLabel="$char"
+							break
+						elif [[ "$char" =~ [Nn] ]]; then
+							break
+						fi
+					fi
+				done
+
+				echo -ne "\r" && tput el
+				echo -ne "\r${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
+				echo "$replaceLabel"
+			fi
+
+			if [[ "$replaceLabel" =~ [Yy] ]]
 			then
 				infoOut "\t${BOLD}Replacing.${RESET}"
 				configArray[$appPath]=$foundLabel
@@ -757,29 +872,21 @@ verifyApp() {
 				fi
 				IFS="$CURRENTIFS"
 
-				if (( ${#writeconfig} ))
-				then
-					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$defaultConfigfile"
-					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $defaultConfigfile
+				if (( ${#writeconfig} )); then
+					/usr/libexec/PlistBuddy -c "set \":${appPath}\" ${foundLabel}" "$configFile"
+					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${exists}\"" $configFile
 				fi
 			else
 				infoOut "\t${BOLD}Skipping.${RESET}"
 				# add skipped label to Ignored list
 				ignoredLabelsArray["$foundLabel"]=1
-
-				if (( ${#writeconfig} ))
-				then
-					/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $defaultConfigfile
-				fi
+				(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${foundLabel}\"" $configFile
 				return
 			fi
 		fi
 	else
 		configArray[$appPath]=$foundLabel
-		if (( ${#writeconfig} ))
-		then
-			/usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$defaultConfigfile"
-		fi
+		(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":${appPath}\" string ${foundLabel}" "$configFile"
 	fi
 
 	# If appversion was not found from eval then try a couple other methods
@@ -788,7 +895,7 @@ verifyApp() {
 
 	[[ -n "$appversion" ]] && notice "--- Installed version: ${appversion}"
 
-	if [[ -z "$appNewVersion" ]] && grep -q '^\s*appNewVersion' "$labelFragment" && (( ! ${#quietmode} )); then
+	if [[ -z "$appNewVersion" ]] && grep -q '^\s*appNewVersion' "$labelFragment"; then
 		linesToEval="case $foundLabel in
 			$foundLabel|\
 			$(cat $labelFragment)
@@ -925,8 +1032,6 @@ verifyScript() {
 
 
 # Command line options
-
-#zparseopts -D -E -F -K -- \
 zparseopts -D -E -F -K -- \
 -help+=showhelp h+=showhelp \
 -version+=showversion \
@@ -938,16 +1043,18 @@ zparseopts -D -E -F -K -- \
 -verbose=verbose v=verbose \
 -read=readconfig r=readconfig \
 -write=writeconfig w=writeconfig \
--config:=configfile c:=configfile \
+-config:=cliConfigFile c:=cliConfigFile \
 -skipverify=skipVerify s=skipVerify \
 -gatekeeper=useSpctl g=useSpctl \
--pathtoinstallomator:=InstallomatorPATH p:=InstallomatorPATH \
+-pathtoinstallomator:=cliInstallomatorPATH p:=cliInstallomatorPATH \
+-icon:=iconPATH \
 -ignored:=ignoredLabels \
 -required:=requiredLabels \
--mdm:=MDMName m:=MDMName \
+-mdm:=cliMDMName m:=cliMDMName \
+-timeout:=cliTimeout t:=cliTimeout \
 -everywhere=everywhere e=everywhere \
--options:=CLIOptions o:=CLIOptions \
--proxy:=PROXY \
+-options:=cliOptions o:=cliOptions \
+-proxy:=cliPROXY \
 || fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
@@ -964,9 +1071,10 @@ zparseopts -D -E -F -K -- \
 # -s --skip-verify
 # -g --gatekeeper
 # -p --pathtoinstallomator <installomator path>
+#    --icon <icon path>
 #    --ignored <list of ignored apps>
 #    --required <list of required apps>
-# -m --mdm [one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ] Any other Mac MDM solutions worth mentioning?
+# -m --mdm [ jamf, mosyleb, mosylem, addigy, microsoft, ws1, kandji, filewave ]
 # -e --everywhere
 # -o --options "list of installomator options to pass through"
 #    --proxy <proxyIP:port>
@@ -990,88 +1098,151 @@ fi
 
 notice "Verbose Mode enabled." # and if it's not? This won't echo.
 
-if [[ ${#configfile} -eq 0 ]] && [[ -f $managedConfigfile ]]; then
-	defaultConfigfile=$managedConfigfile
-elif [[ ${#configfile} -gt 0 ]]; then
-	defaultConfigfile=$configfile[-1] # either provided on the command line, or default path
+if (( ${#cliConfigFile} )); then
+	configFile="$cliConfigFile[-1]"
+elif [[ -f "$managedConfigFile" ]]; then
+	configFile="$managedConfigFile"
+else
+	configFile="$defaultConfigFile"
 fi
-
 
 # prevent patchomator modify the content of the managed config
-if [[ $defaultConfigfile == $managedConfigfile ]] && (( ${#writeconfig} ))
-then
-	fatal "You should not manualy overwrite ${YELLOW}$managedConfigfile${RESET}"
+if [[ $configFile == $managedConfigFile ]] && (( ${#writeconfig} )); then
+	fatal "You should not manualy overwrite ${YELLOW}$managedConfigFile${RESET}"
 fi
 
-InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
-
-if [[ -n $PROXY[-1] ]]; then
-	infoOut "Proxy defined: $PROXY[-1], testing access to it"
-	proxyAddress=$(echo $PROXY[-1] | cut -d ":" -f1)
-	portNumber=$(echo $PROXY[-1] | cut -d ":" -f2)
-	infoOut "Proxy: $proxyAddress, Port: $portNumber"
-	if cmdOutput=$(! nc -z -v -G 10 ${proxyAddress} ${portNumber} 2>&1) ; then
-		infoOut "$cmdOutput"
-		infoOut "ERROR : No proxy connection, skipping this."
+InstallomatorPATH="$defaultInstallomatorPATH"
+if (( ${#cliInstallomatorPATH} )); then
+	if [[ -f "$cliInstallomatorPATH[-1]" ]]; then
+		InstallomatorPATH=$cliInstallomatorPATH[-1]
 	else
-		infoOut "Proxy access detected, so using that."
-		export ALL_PROXY="$PROXY[-1]"
+		warning "Could not find file $cliInstallomatorPATH[-1]. Using default of $defaultInstallomatorPATH."
 	fi
 fi
 
-MDMName=$MDMName[-1] #[one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ]
+promptTimeoutMax=$defaultPromptTimeoutMax
+if (( ${#cliTimeout} )); then
+	if [[ "$cliTimeout[-1]" =~ '^[0-9]+$' ]]; then
+		if (( cliTimeout[-1] < 10 )); then
+			warning "Timeout of \"$cliTimeout[-1]\" is less than 10 seconds. Use -y instead for no prompting. Using default of $defaultPromptTimeoutMax seconds."
+		elif (( cliTimeout[-1] > 9000 )); then
+			warning "Timeout of \"$cliTimeout[-1]\" is more than 9000 seconds. 2.5 hours is already too long. Using default of $defaultPromptTimeoutMax seconds."
+		else
+			promptTimeoutMax=$cliTimeout[-1]
+		fi
+	else
+		warning "Timeout must be an integer. \"$cliTimeout[-1]\" is not an integer. Using default of $defaultPromptTimeoutMax seconds."
+	fi
+fi
 
-# --mdm
-# Assumes certain settings when an MDM is declared:
-# - Installomator options:
-# 	- logo
-#	- ?
-# --install
-# --quiet
-# --yes
+if (( ${#cliPROXY} )); then
+	PROXY=$cliPROXY[-1]
 
+	if [[ -n $PROXY ]]; then
+		infoOut "Proxy defined: $PROXY, testing access to it"
+		proxyAddress=$(echo $PROXY | cut -d ":" -f1)
+		portNumber=$(echo $PROXY | cut -d ":" -f2)
+		infoOut "Proxy: $proxyAddress, Port: $portNumber"
+		if cmdOutput=$(! nc -z -v -G 10 ${proxyAddress} ${portNumber} 2>&1) ; then
+			infoOut "$cmdOutput"
+			infoOut "ERROR : No proxy connection, skipping this."
+		else
+			infoOut "Proxy access detected, so using that."
+			export ALL_PROXY="$PROXY"
+		fi
+	fi
+fi
 
-### Default Installomator Options:
+if (( ${#cliMDMName} )); then
+	MDMName=$cliMDMName[-1] #[one of jamf, mosyleb, mosylem, addigy, microsoft, ws1, other ]
 
-InstallomatorOptions=(\
-[NOTIFY]=success \
-[PROMPT_TIMEOUT]=86400 \
-[BLOCKING_PROCESS_ACTION]=tell_user \
-[LOGO]=appstore \
-[IGNORE_APP_STORE_APPS]="no" \
-[SYSTEMOWNER]=0 \
-[REOPEN]="yes" \
-[INTERRUPT_DND]="yes" \
-[NOTIFY_DIALOG]=1 \
-[LOGGING]="INFO" \
-[DEBUG]=-1
-)
+	case "${(L)MDMName}" in
+		jamf)
+			# Jamf Pro
+			swiftDialogIcon="/Library/Application Support/JAMF/Jamf.app/Contents/Resources/AppIcon.icns"
+			InstallomatorOptions[LOGO]="jamf"
+			;;
+		mosyleb)
+			# Mosyle Business
+			swiftDialogIcon="/Applications/Self-Service.app/Contents/Resources/AppIcon.icns"
+			InstallomatorOptions[LOGO]="mosyleb"
+			;;
+		mosylem)
+			# Mosyle Manager (education)
+			swiftDialogIcon="/Applications/Manager.app/Contents/Resources/AppIcon.icns"
+			InstallomatorOptions[LOGO]="mosylem"
+			;;
+		addigy)
+			# Addigy
+			swiftDialogIcon="/Library/Addigy/macmanage/MacManage.app/Contents/Resources/atom.icns"
+			InstallomatorOptions[LOGO]="addigy"
+			;;
+		microsoft)
+			# Microsoft Endpoint Manager (Intune)
+			if [[ -d "/Library/Intune/Microsoft Intune Agent.app" ]]; then
+				swiftDialogIcon="/Library/Intune/Microsoft Intune Agent.app/Contents/Resources/AppIcon.icns"
+			elif [[ -d "/Applications/Company Portal.app" ]]; then
+				swiftDialogIcon="/Applications/Company Portal.app/Contents/Resources/AppIcon.icns"
+			fi
+			InstallomatorOptions[LOGO]="microsoft"
+			;;
+		ws1)
+			# Workspace ONE (AirWatch)
+			swiftDialogIcon="/Applications/Workspace ONE Intelligent Hub.app/Contents/Resources/AppIcon.icns"
+			InstallomatorOptions[LOGO]="ws1"
+			;;
+		kandji)
+			# Kandji
+			swiftDialogIcon="/Applications/Kandji Self Service.app/Contents/Resources/AppIcon.icns"
+			InstallomatorOptions[LOGO]="kandji"
+			;;
+		filewave)
+			# FileWave
+			swiftDialogIcon="/usr/local/sbin/FileWave.app/Contents/Resources/fwGUI.app/Contents/Resources/kiosk.icns"
+			InstallomatorOptions[LOGO]="filewave"
+			;;
+	esac
+fi
+
+if (( ${#iconPATH} )); then
+	swiftDialogIcon="${iconPATH[-1]}"
+	InstallomatorOptions[LOGO]="${iconPATH[-1]}"
+fi
+
+if [[ ! -f "$swiftDialogIcon" ]]; then
+	if [[ -f "$patchomatorIcon" ]]; then
+		swiftDialogIcon="$patchomatorIcon"
+		InstallomatorOptions[LOGO]="$patchomatorIcon"
+	else
+		if [[ $(sw_vers -buildVersion) > "19" ]]; then
+			swiftDialogIcon="/System/Applications/App Store.app/Contents/Resources/AppIcon.icns"
+		else
+			swiftDialogIcon="/Applications/App Store.app/Contents/Resources/AppIcon.icns"
+		fi
+		InstallomatorOptions[LOGO]="appstore"
+	fi
+fi
 
 # Parse command line --options
-OptionsString=$CLIOptions[-1]
+if (( ${#cliOptions} )); then
+	OptionsString=$cliOptions[-1]
 
-# split on spaces, then on =
-# 	AddOptions=$(echo "$OptionsString" | awk -v OFS="\n" '{$1=$1}1' | awk -v FS="=" '{print "InstallomatorOptions+=\(["$1"]="$2"\)"}')
-
-# Add them to the InstallomatorOptions array
-#	eval "$AddOptions"
-
-# Additional optional settings by MDM
-#	if [ "$MDMName" ]
-#	then
-#		quietmode[1]=true
-#	#	installmode=true
-#		noninteractive[1]=true
-#	fi
-#
-#	if [ "$MDMName" ]
-#	then
-#		# set logos for known MDM vendors
-#		if [ "$MDMName" != "other" ]
-#		then
-#			InstallomatorOptions[LOGO]="$MDMName"
-#		fi
-#	fi
+	for pair in ${(z)OptionsString}; do
+		key=${pair%%=*}
+		key=${(U)key}
+		value=${pair#*=}
+		if [[ "$key" == "LOGGING" ]]; then
+			value=${(U)value}
+			case "$value" in
+				DEBUG|INFO|WARN|ERROR) ;;
+				*) value="INFO" ;;
+			esac
+		else
+			value=${(L)value}
+		fi
+		InstallomatorOptions[$key]=$value
+	done
+fi
 
 ## Starting up. Need to log options, etc
 
@@ -1103,9 +1274,9 @@ if (( ${#readconfig} ))
 then
 	notice "Reading Config"
 
-	if ! [[ -f $defaultConfigfile ]]
+	if [[ ! -f "$configFile" ]]
 	then
-		fatal "No config file at $defaultConfigfile. Run patchomator again with ${YELLOW}--write${RESET} to create one now.\n"
+		fatal "No config file at $configFile. Run patchomator again with ${YELLOW}--write${RESET} to create one now.\n"
 	else
 		displayConfig
 	fi
@@ -1121,25 +1292,25 @@ checkLabels
 if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" != "/dev/null" ]]; then
 	/usr/local/bin/dialog --title "Patchomator Progress" \
 		--message "Starting Patchomator." \
-		--icon "/usr/local/Installomator/patch-o-mater-icon.png" \
+		--icon "$swiftDialogIcon" \
 		--mini \
 		--progress 100 \
 		--button1text "..." \
 		--ontop \
-		--movable \
+		--moveable \
+		--position "center" \
 		--commandfile "$DialogPATH" > /dev/null 2>&1 &
 	sleep 0.1
 	dialogPID=$(pgrep -f "$DialogPATH" | tail -n 1)
 fi
 
-if [[ -f $defaultConfigfile ]] && (( ! ${#writeconfig} ))
-then
+if [[ -f "$configFile" ]] && (( ! ${#writeconfig} )); then
 	infoOut "Reading existing configuration for labels"
 
 	# parse the config for existing labels
-	labelsFromConfig=($(defaults read "$defaultConfigfile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
-	ignoredLabelsFromConfig=($(defaults read "$defaultConfigfile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
-	requiredLabelsFromConfig=($(defaults read "$defaultConfigfile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	labelsFromConfig=($(defaults read "$configFile" | grep -e ';$' | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	ignoredLabelsFromConfig=($(defaults read "$configFile" IgnoredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
+	requiredLabelsFromConfig=($(defaults read "$configFile" RequiredLabels | awk '{printf "%s ",$NF}' | tr -c -d "[:alnum:][:space:][\-_]" | tr -s "[:space:]"))
 
 	for ignoredLabel in $ignoredLabelsFromConfig; do
 		[[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]] && ignoredLabelsArray["$ignoredLabel"]=1
@@ -1153,50 +1324,50 @@ fi
 
 if (( ${#writeconfig} )); then
 	# Create Config file if none already exists
-	if ! [[ -f $defaultConfigfile ]] # no existing config
+	if [[ ! -f "$configFile" ]] # no existing config
 	then
-		if [[ -d $defaultConfigfile ]] # common mistake, select a directory, not a filename
+		if [[ -d "$configFile" ]] # common mistake, select a directory, not a filename
 		then
 			fatal "Please specify a file name for the configuration, not a directory.\n\tExample: ${YELLOW}patchomator --write --config \"/etc/patchomator.plist\""
 		fi
 
-		if [[ -d "$(dirname $defaultConfigfile)" ]] # directory exists
+		if [[ -d "$(dirname $configFile)" ]] # directory exists
 		then
-			if [[ -w "$(dirname $defaultConfigfile)" ]] #directory is writable
+			if [[ -w "$(dirname $configFile)" ]] #directory is writable
 			then
-				infoOut "No existing config file at $defaultConfigfile. Creating one now."
+				infoOut "No existing config file at $configFile. Creating one now."
 			else
 				# exists, but not writable
-				fatal "$(dirname $defaultConfigfile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+				fatal "$(dirname $configFile) exists, but is not writable. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 			fi
 		else # directory doesn't exist
-			infoOut "The path to $defaultConfigfile does not exist. Making path and creating file now."
-			makepath "$defaultConfigfile"
+			infoOut "The path to $configFile does not exist. Making path and creating file now."
+			makepath "$configFile"
 		fi
 
 		# creates a blank plist
-		plutil -create xml1 "$defaultConfigfile" || fatal "Unable to create $defaultConfigfile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+		plutil -create xml1 "$configFile" || fatal "Unable to create $configFile. Re-run patchomator with sudo to create the config file there, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 
 		# add sections for label arrays
-		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"
-		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"
+		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configFile}"
+		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configFile}"
 	else
 		# Clear config to write
 		notice "Writing Config"
 
-		if ! [[ -w $defaultConfigfile ]]
+		if [[ ! -w "$configFile" ]]
 		then
-			fatal "$defaultConfigfile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
+			fatal "$configFile is not writable. Re-run patchomator with sudo, or use a writable path with\n\t ${YELLOW}--config \"path to config file\"${RESET}"
 		fi
 
-		infoOut "Refreshing $defaultConfigfile"
+		infoOut "Refreshing $configFile"
 
 		# empty the existing plist
-		/usr/libexec/PlistBuddy -c "clear dict" "${defaultConfigfile}" &>/dev/null
+		/usr/libexec/PlistBuddy -c "clear dict" "${configFile}" &>/dev/null
 
 		# add sections for label arrays
-		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${defaultConfigfile}"
-		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${defaultConfigfile}"
+		/usr/libexec/PlistBuddy -c 'add ":IgnoredLabels" array' "${configFile}"
+		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configFile}"
 	fi
 fi
 
@@ -1229,10 +1400,7 @@ then
 		[[ ${requiredLabelsArray["$requiredLabel"]} == 1 ]] && continue
 		if [[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]]
 		then
-			if (( ${#writeconfig} ))
-			then
-				/usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $defaultConfigfile
-			fi
+			(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":RequiredLabels:\" string \"${requiredLabel}\"" $configFile
 			requiredLabelsArray["$requiredLabel"]=1
 		else
 			error "No such label ${requiredLabel}"
@@ -1261,9 +1429,7 @@ then
 			notice "[CLI] Also ignoring labels: $recommendedIgnores"
 			for recIgnoreLabel in $recommendedIgnores; do
 				if [[ -f "${fragmentsPATH}/labels/${recIgnoreLabel}.sh" ]]; then
-					if [[ ${#writeconfig} -eq 1 ]]; then
-						/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${recIgnoreLabel}\"" $defaultConfigfile
-					fi
+					(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${recIgnoreLabel}\"" $configFile
 					ignoredLabelsArray["$recIgnoreLabel"]=1
 				else
 					error "No such label ${ignoredLabel}"
@@ -1272,9 +1438,7 @@ then
 			continue
 		fi
 		if [[ -f "${fragmentsPATH}/labels/${ignoredLabel}.sh" ]]; then
-			if [[ ${#writeconfig} -eq 1 ]]; then
-				/usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $defaultConfigfile
-			fi
+			(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${ignoredLabel}\"" $configFile
 			ignoredLabelsArray["$ignoredLabel"]=1
 		else
 			error "No such label ${ignoredLabel}"
@@ -1301,7 +1465,7 @@ if [[ $skipDiscovery != true ]]; then
 	dialogProgress "Processing $numFragments labels"
 
 	# No sleeping
-	/usr/bin/caffeinate -d -i -m -u &
+	/usr/bin/caffeinate -d -i -m -u -w $$ -t 600 &
 	caffeinatepid=$!
 
 	for labelFragment in "$fragmentsPATH"/labels/*.sh; do
