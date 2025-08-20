@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 VERSION="1.1.4"
-VERSIONDATE="2025-08-05"
+VERSIONDATE="2025-08-20"
 
 # Gigantic Thanks to:
 #	rondelltron
@@ -85,7 +85,6 @@ VERSIONDATE="2025-08-05"
 # self-update switch branches from release to latest source
 
 
-
 if [ -z "${ZSH_VERSION}" ]; then
 	>&2 echo "[ERROR] This script is only compatible with Z shell (/bin/zsh). Re-run with"
 	echo "\t zsh patchomator.sh"
@@ -107,12 +106,7 @@ fi
 
 
 # Check your privilege
-if [ $(whoami) = "root" ]
-then
-	IAMROOT=true
-else
-	IAMROOT=false
-fi
+IAMROOT=$(( EUID == 0 ))
 
 autoload -Uz is-at-least
 
@@ -171,8 +165,8 @@ echo $$ > "$lockfile"
 
 if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
-	rm -f "$DialogPATH"
-	touch "$DialogPATH" 2> /dev/null && chmod a+rw "$DialogPATH" || error "$DialogPATH not writable."
+	rm -f "$DialogPATH" 2>/dev/null
+	touch "$DialogPATH" 2>/dev/null && chmod a+rw "$DialogPATH" || error "$DialogPATH not writable."
 fi
 
 [[ -w "$DialogPATH" ]] || DialogPATH="/dev/null"
@@ -184,7 +178,7 @@ recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" 
 ### Default Installomator Options:
 InstallomatorOptions=(\
 [NOTIFY]=success \
-[PROMPT_TIMEOUT]=86400 \
+[PROMPT_TIMEOUT]=3600 \
 [BLOCKING_PROCESS_ACTION]=tell_user \
 [IGNORE_APP_STORE_APPS]="no" \
 [SYSTEMOWNER]=0 \
@@ -234,21 +228,20 @@ usage() {
 finishAndExit () {
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 	(( ${#quietmode} )) || (( ${#readconfig} )) || echo "quit:" >> $DialogPATH
-	rm -f "$lockfile"
+	rm -f "$lockfile" 2>/dev/null
 	exit $1
 }
 
 cleanup() {
-	[[ -e "$tmpReplacePromptfile" ]] && rm -f "$tmpReplacePromptfile"
-	if [[ -e "$tmpReplaceDialogCommandFile" ]]; then
-		echo "quit:" >> "$tmpReplaceDialogCommandFile"
+	[[ -e "$tmpTimeoutPromptfile" ]] && rm -f "$tmpTimeoutPromptfile" 2>/dev/null
+	if [[ -e "$tmpTimeoutDialogCommandFile" ]]; then
+		echo "quit:" >> "$tmpTimeoutDialogCommandFile"
 		sleep 0.1
-		rm -f "$tmpReplaceDialogCommandFile"
+		rm -f "$tmpTimeoutDialogCommandFile" 2>/dev/null
 	fi
 	kill -0 "$caffeinatepid" 2>/dev/null && kill "$caffeinatepid" 2>/dev/null
 	kill -0 "$dialogPID" 2>/dev/null && kill "$dialogPID" 2>/dev/null
-	kill -0 "$cliReplacePID" 2>/dev/null && kill "$cliReplacepid" 2>/dev/null
-	kill -0 "$dialogReplacePID" 2>/dev/null && kill "$dialogReplacePID" 2>/dev/null
+	kill -0 "$dialogTimeoutPID" 2>/dev/null && kill "$dialogTimeoutPID" 2>/dev/null
 	echo
 	finishAndExit 1
 }
@@ -281,7 +274,7 @@ error() { # bad, but recoverable
 
 fatal() { # something bad happened.
 	echo "\n${BOLD}${RED}[FATAL ERROR]${RESET} $1\n\n" | tee -a "$logPATH"
-	finishAndExit 1
+	cleanup
 }
 
 # --read
@@ -312,20 +305,14 @@ checkInstallomator() {
 	# check for existence of Installomator to enable installation of updates
 	notice "Looking for Installomator.sh at ${YELLOW}$InstallomatorPATH ${RESET}"
 
-	if [[ ! -f "$InstallomatorPATH" ]]
-	then
+	if [[ ! -f "$InstallomatorPATH" ]]; then
 		error "Installomator was not found at ${YELLOW}$InstallomatorPATH ${RESET}"
-		if (( ${#noninteractive} )); then
-			notice "Running in non-interactive mode. Skipping Installomator install."
-		else
-			OfferToInstall
-		fi
+		OfferToInstall
 	fi
 
 	InstalledVersion="$($InstallomatorPATH version | tail -1)"
 
-	if [ $(echo $InstalledVersion | cut -d . -f 1) -lt 10 ]
-	then
+	if [ $(echo $InstalledVersion | cut -d . -f 1) -lt 10 ]; then
 		fatal "Installomator is installed, but is out of date. Versions prior to 10.0 function unpredictably with Patchomator.\nYou can probably update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
 	fi
 
@@ -340,12 +327,7 @@ checkInstallomator() {
 		notice "Latest Version: $LatestVersion - Installed Version: $InstalledVersion"
 		if ! is-at-least "$LatestVersion" "$InstalledVersion"; then
 			error "Installomator was found, but is out of date. You can update it by running \n\t${YELLOW}sudo $InstallomatorPATH installomator ${RESET}"
-			if (( ${#noninteractive} ))
-			then
-				notice "Running in non-interactive mode. Skipping Installomator update."
-			else
-				OfferToInstall
-			fi
+			OfferToInstall
 		fi
 	fi
 
@@ -358,29 +340,62 @@ checkInstallomator() {
 # --install
 OfferToInstall() {
 	#Check your privilege
-	if $IAMROOT
-	then
-		echo -n "Patchomator can still discover apps on the system and create a configuration for later use, but will not be able to install or update anything without Installomator. \
-		\n${BOLD}Download and install Installomator now? ${YELLOW}[y/N]${RESET} "
-
-		read DownloadFromGithub
-
-		if [[ $DownloadFromGithub =~ '[Yy]' ]]
-		then
-			installInstallomator
-		else
-			echo "${BOLD}Continuing without Installomator.${RESET}"
-			# disable installs
-			if (( ${#installmode} ))
-			then
-				fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
-				\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
-			fi
-		fi
-	else
+	if (( ${#noninteractive} )); then
 		fatal "Specify a different path with \"${YELLOW}-p [path to Installomator]${RESET}\" or download and install it from here:\
 		\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}\
-		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with ${YELLOW}sudo${RESET} or without ${YELLOW}--install${RESET}"
+		\n\nThis script can also attempt to install Installomator for you. Re-run patchomator with ${YELLOW}sudo${RESET} and without ${YELLOW}--yes${RESET}"
+	else
+		echo "Patchomator can still discover apps and create a configuration for later use, but will not be able to install or update anything without Installomator."
+		if [[ -n "$dialogPID" ]]; then
+			tmpTimeoutPromptFile=$(mktemp)
+			tmpTimeoutDialogCommandFile=$(mktemp /tmp/tmpTimeoutDialog.XXXXXX)
+			chmod a+rw "$tmpTimeoutDialogCommandFile"
+
+			dialogTimeoutPrompt "Download and install Installomator?\nPatchomator can still discover apps and create a configuration for later use, but will not be able to install or update anything without Installomator."\
+				"$tmpTimeoutPromptFile" "$tmpTimeoutDialogCommandFile" "Install Installomator?" "Yes" "No ($promptTimeoutMax)" &
+			sleep 0.2
+			dialogTimeoutPID=$(pgrep -f "$tmpTimeoutDialogCommandFile" | tail -n 1)
+			echo "hide:" >> "$DialogPATH"
+		fi
+
+		DownloadFromGithub="n"
+		for ((i=promptTimeoutMax; i>0; i--)); do
+			echo -ne "\r" && tput el
+			echo -ne "\r${BOLD}Download and install Installomator now? ${YELLOW}[y/N($i)]${RESET} "
+			[[ -n "$dialogPID" ]] && echo "button2text: No ($i)" >> "$tmpTimeoutDialogCommandFile"
+
+			if read -t 1 -k 1 char; then
+				if [[ "$char" =~ [Yy] ]]; then
+					DownloadFromGithub="$char"
+					break
+				elif [[ "$char" =~ [Nn] ]]; then
+					break
+				fi
+			fi
+			if [[ -n "$dialogPID" ]] && [[ -s "$tmpTimeoutPromptFile" ]]; then
+				DownloadFromGithub="$(< "$tmpTimeoutPromptFile")"
+				break
+			fi
+		done
+
+		echo -ne "\r" && tput el
+		echo -ne "\r${BOLD}Download and install Installomator now? ${YELLOW}[y/N]${RESET} "
+		echo "$DownloadFromGithub"
+
+		if [[ -n "$dialogPID" ]]; then
+			kill $dialogTimeoutPID 2>/dev/null
+			rm -f "$tmpTimeoutPromptFile" "$tmpTimeoutDialogCommandFile" 2>/dev/null
+
+			echo "position: center" >> "$DialogPATH"
+			echo "show:" >> "$DialogPATH"
+		fi
+
+		if [[ $DownloadFromGithub =~ '[Yy]' ]]; then
+			installInstallomator
+		else
+			fatal "Patchomator cannot install or update apps without the latest Installomator. If you would like to continue, either re-run Patchomator without ${YELLOW}--install${RESET}, or install Installomator from this URL:\
+			\n\t ${YELLOW}https://github.com/Installomator/Installomator${RESET}"
+		fi
 	fi
 }
 
@@ -396,7 +411,8 @@ installInstallomator() {
 	notice "Created working directory '$tempDirectory'"
 
 	# Download the installer package
-	notice "Downloading Installomator package"
+	dialogProgress "Installing Installomator"
+	infoOut "Downloading Installomator package"
 	curl --location --silent "$PKGurl" -o "$tempDirectory/Installomator.pkg" || fatal "Download failed."
 
 	# Verify the download
@@ -404,18 +420,22 @@ installInstallomator() {
 	notice "Team ID of downloaded package: $teamID"
 
 	# Install the package, only if Team ID validates
-	if [ "$expectedTeamID" = "$teamID" ]
-	then
-		notice "Package verified. Installing package Installomator.pkg"
-		installer -pkg "$tempDirectory/Installomator.pkg" -target / -verbose || fatal "Installation failed. See /var/log/installer.log for details."
+	if [ "$expectedTeamID" = "$teamID" ]; then
+		infoOut "Package verified. Installing package Installomator.pkg"
+		installer -pkg "$tempDirectory/Installomator.pkg" -target / -verbose
+		installStatus=$(echo $?)
+		if [ $installStatus != 0 ]; then
+			rm -Rf "$tempDirectory" 2>/dev/null
+			fatal "Installation failed. See /var/log/installer.log for details."
+		fi
 	else
+		rm -Rf "$tempDirectory" 2>/dev/null
 		fatal "Package verification failed. TeamID does not match."
 	fi
 
 	# Remove the temporary working directory when done
 	notice "Deleting working directory '$tempDirectory' and its contents"
-	rm -Rf "$tempDirectory"
-
+	rm -Rf "$tempDirectory" 2>/dev/null
 }
 
 
@@ -425,10 +445,8 @@ checkLabels() {
 	notice "Looking for labels in ${fragmentsPATH}/labels/"
 
 	# use curl to get the labels - who needs git?
-	if [[ ! -d "$fragmentsPATH" ]]
-	then
-		if [[ -w "$patchomatorPath" ]]
-		then
+	if [[ ! -d "$fragmentsPATH" ]];	then
+		if [[ -w "$patchomatorPath" ]];	then
 			infoOut "Package labels not present at $fragmentsPATH. Attempting to download from https://github.com/installomator/"
 			downloadLatestLabels
 		else
@@ -438,22 +456,24 @@ checkLabels() {
 	else
 		labelsAge=$((($(date +%s) - $(stat -t %s -f %m -- "$fragmentsPATH/labels")) / 86400))
 
-		if [[ $labelsAge -gt 30 ]]
-		then
-			if [[ -w "$patchomatorPath" ]]
-			then
+		if [[ $labelsAge -gt 30 ]]; then
+			if [[ -w "$patchomatorPath" ]]; then
 				infoOut "Package labels are out of date. Last updated ${labelsAge} days ago. Attempting to download from https://github.com/installomator/"
 				downloadLatestLabels
 			else
 				fatal "Package labels are out of date. Last updated ${labelsAge} days ago. Re-run patchomator with sudo to update them."
-
 			fi
-
+		elif [[ ! -f "$fragmentsPATH/functions.sh" ]]; then
+			if [[ -w "$patchomatorPath" ]]; then
+				infoOut "Installomator functions file is missing. Attempting to download from https://github.com/installomator/"
+				downloadLatestLabels
+			else
+				fatal "Installomator functions file is missing. Re-run patchomator with sudo to reinstall fragments folder."
+			fi
 		else
 			infoOut "Package labels installed. Last updated ${labelsAge} days ago."
 		fi
 	fi
-
 }
 
 dialogProgress() {
@@ -489,7 +509,7 @@ rollLogs() {
 			mv -f "$srcLog" "$destLog"
 		fi
 	done
-	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
+	touch "$logPATH" 2>/dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
 }
 
 downloadLatestLabels() {
@@ -518,7 +538,7 @@ downloadLatestLabels() {
 
 	# Remove the temporary working directory when done
 	notice "Deleting working directory '$temptarDirectory' and its contents"
-	rm -Rf "$temptarDirectory"
+	rm -Rf "$temptarDirectory" 2>/dev/null
 }
 
 # --install
@@ -644,7 +664,7 @@ FindAppFromLabel() {
 		then
 			installedAppPath=$filteredAppPaths[1]
 
-			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey" 2> /dev/null)
+			[[ -n "$appversion" ]] || appversion=$(defaults read "$installedAppPath/Contents/Info.plist" "$versionKey" 2>/dev/null)
 
 			infoOut "-- Found $name version $appversion"
 
@@ -674,28 +694,29 @@ FindAppFromLabel() {
 	fi
 }
 
-cliReplacePrompt() {
-	echo -n "$1"
-	read replaceLabel < /dev/tty
-	echo "$replaceLabel" > "$2"
-}
+dialogTimeoutPrompt() {
+	local message="$1"
+	local promptFile="$2"
+	local commandFile="$3"
+	local title="$4"
+	local button1="$5"
+	local button2="$6"
 
-dialogReplacePrompt() {
-	/usr/local/bin/dialog --title "Replace Label?" \
-		--message "$1" \
+	/usr/local/bin/dialog --title "$title" \
+		--message "$message" \
 		--icon "$swiftDialogIcon" \
 		--mini \
-		--button1text "Replace" \
-		--button2text "Skip ($promptTimeoutMax)" \
+		--button1text "$button1" \
+		--button2text "$button2" \
 		--ontop \
 		--moveable \
 		--position "center" \
-		--commandfile "$3" > /dev/null 2>&1
-	dialogReplaceRet=$(echo $?)
-	if [[ "$dialogReplaceRet" -eq 0 ]]; then
-		echo "y" | tee -a "$2"
-	elif [[ "$dialogReplaceRet" -eq 2 ]]; then
-		echo "n" | tee -a "$2"
+		--commandfile "$commandFile" > /dev/null 2>&1
+	dialogTimeoutRet=$(echo $?)
+	if [[ "$dialogTimeoutRet" -eq 0 ]]; then
+		echo "y" > "$promptFile"
+	elif [[ "$dialogTimeoutRet" -eq 2 ]]; then
+		echo "n" > "$promptFile"
 	fi
 }
 
@@ -785,71 +806,46 @@ verifyApp() {
 			return
 		else
 			if [[ -n "$dialogPID" ]]; then
-				replaceMessageCLI="${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
-				replaceMessageGUI="Replace label ${exists} with $foundLabel?"
+				tmpTimeoutPromptFile=$(mktemp)
+				tmpTimeoutDialogCommandFile=$(mktemp /tmp/tmpTimeoutDialog.XXXXXX)
+				chmod a+rw "$tmpTimeoutDialogCommandFile"
 
-				tmpReplacePromptFile=$(mktemp)
-				tmpReplaceDialogCommandFile=$(mktemp /tmp/tmpReplaceDialog.XXXXXX)
-				chmod a+rw "$tmpReplaceDialogCommandFile"
-
-				dialogReplacePrompt "$replaceMessageGUI" "$tmpReplacePromptFile" "$tmpReplaceDialogCommandFile" &
+				dialogTimeoutPrompt "Replace label '${exists}' with '$foundLabel'?" "$tmpTimeoutPromptFile" "$tmpTimeoutDialogCommandFile" "Replace Label?" "Replace" "Skip ($promptTimeoutMax)" &
 				sleep 0.2
-				dialogReplacePID=$(pgrep -f "$tmpReplaceDialogCommandFile" | tail -n 1)
-
-				cliReplacePrompt "$replaceMessageCLI" "$tmpReplacePromptFile" &
-				cliReplacePID=$!
-
+				dialogTimeoutPID=$(pgrep -f "$tmpTimeoutDialogCommandFile" | tail -n 1)
 				echo "hide:" >> "$DialogPATH"
+			fi
 
-				promptTimeoutTicks=0
-				while true; do
-					if [[ -s "$tmpReplacePromptFile" ]]; then
-						replaceLabel="$(< "$tmpReplacePromptFile")"
-						echo "quit:" >> "$tmpReplaceDialogCommandFile"
-						kill $cliReplacePID 2>/dev/null
-						kill $dialogReplacePID 2>/dev/null
-						rm -f "$tmpReplacePromptFile" "$tmpReplaceDialogCommandFile"
+			replaceLabel="n"
+			for ((i=promptTimeoutMax; i>0; i--)); do
+				echo -ne "\r" && tput el
+				echo -ne "\r${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N($i)]${RESET} "
+				[[ -n "$dialogPID" ]] && echo "button2text: Skip ($i)" >> "$tmpTimeoutDialogCommandFile"
+
+				if read -t 1 -k 1 char; then
+					if [[ "$char" =~ [Yy] ]]; then
+						replaceLabel="$char"
+						break
+					elif [[ "$char" =~ [Nn] ]]; then
 						break
 					fi
-					if (( promptTimeoutTicks > promptTimeoutMax * 5 )); then
-						replaceLabel="n"
-						echo "quit:" >> "$tmpReplaceDialogCommandFile"
-						kill $cliReplacePID 2>/dev/null
-						kill $dialogReplacePID 2>/dev/null
-						rm -f "$tmpReplacePromptFile" "$tmpReplaceDialogCommandFile"
-						break
-					fi
-					sleep 0.2
-					let promptTimeoutTicks++
-					if (( promptTimeoutTicks % 5 == 0 )); then
-						promptTimeoutSeconds=$((promptTimeoutTicks / 5))
-						echo "button2text: Skip ($((promptTimeoutMax - promptTimeoutSeconds)))" >> "$tmpReplaceDialogCommandFile"
-					fi
-				done
+				fi
+				if [[ -n "$dialogPID" ]] && [[ -s "$tmpTimeoutPromptFile" ]]; then
+					replaceLabel="$(< "$tmpTimeoutPromptFile")"
+					break
+				fi
+			done
+
+			echo -ne "\r" && tput el
+			echo -ne "\r${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
+			echo "$replaceLabel"
+
+			if [[ -n "$dialogPID" ]]; then
+				kill $dialogTimeoutPID 2>/dev/null
+				rm -f "$tmpTimeoutPromptFile" "$tmpTimeoutDialogCommandFile" 2>/dev/null
 
 				echo "position: center" >> "$DialogPATH"
 				echo "show:" >> "$DialogPATH"
-			else
-				replaceLabel="n"
-				echo -n "${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
-
-				for ((i=promptTimeoutMax; i>0; i--)); do
-					echo -ne "\r" && tput el
-					echo -ne "\r${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N($i)]${RESET} "
-
-					if read -t 1 -k 1 char; then
-						if [[ "$char" =~ [Yy] ]]; then
-							replaceLabel="$char"
-							break
-						elif [[ "$char" =~ [Nn] ]]; then
-							break
-						fi
-					fi
-				done
-
-				echo -ne "\r" && tput el
-				echo -ne "\r${BOLD}Replace label ${exists} with $foundLabel? ${YELLOW}[y/N]${RESET} "
-				echo "$replaceLabel"
 			fi
 
 			if [[ "$replaceLabel" =~ [Yy] ]]
@@ -1002,7 +998,7 @@ verifyScript() {
 						notice "Unable to get hash from pkg payload."
 						retval=2
 					fi
-					rm -rf "$expandedPkg"
+					rm -rf "$expandedPkg" 2>/dev/null
 				else
 					notice "Could not expand $archiveName to $expandedPkg"
 					retval=2
@@ -1016,7 +1012,7 @@ verifyScript() {
 			notice "$scriptVerify"
 			retval=2
 		fi
-		rm -rf "$tmpPkgFile"
+		rm -rf "$tmpPkgFile" 2>/dev/null
 	else
 		notice "Unable to verify scripts not installed via a PKG"
 		retval=2
@@ -1075,6 +1071,7 @@ zparseopts -D -E -F -K -- \
 #    --ignored <list of ignored apps>
 #    --required <list of required apps>
 # -m --mdm [ jamf, mosyleb, mosylem, addigy, microsoft, ws1, kandji, filewave ]
+# -t --timeout <int>
 # -e --everywhere
 # -o --options "list of installomator options to pass through"
 #    --proxy <proxyIP:port>
@@ -1255,7 +1252,7 @@ if [[ -w "$logPATH" ]] then
 	fi
 elif [[ ! -f "$logPATH" ]] then
 #	#doesn't exist
-	touch "$logPATH" 2> /dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
+	touch "$logPATH" 2>/dev/null && chmod a+rw "$logPATH" || error "$logPATH not writable."
 fi
 
 echo "Patchomator starting: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
@@ -1287,6 +1284,10 @@ fi
 # can't do anything without the label files.
 checkLabels
 
+# MOAR Functions! miscellaneous pieces referenced in the occasional label
+# Needs to confirm that labels exist first.
+source "$fragmentsPATH/functions.sh"
+
 ## initiate swiftdialog if we're doing more than just reading config.
 
 if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" != "/dev/null" ]]; then
@@ -1302,6 +1303,16 @@ if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" !
 		--commandfile "$DialogPATH" > /dev/null 2>&1 &
 	sleep 0.1
 	dialogPID=$(pgrep -f "$DialogPATH" | tail -n 1)
+fi
+
+if (( ${#installmode} )); then
+	# Check your privilege
+	if (( ! $IAMROOT )); then
+		fatal "Install mode must be run with root/sudo privileges. Re-run Patchomator with\n\t ${YELLOW}sudo zsh patchomator.sh --install${RESET}"
+	fi
+
+	# can't install without the 'mator
+	checkInstallomator
 fi
 
 if [[ -f "$configFile" ]] && (( ! ${#writeconfig} )); then
@@ -1320,7 +1331,6 @@ if [[ -f "$configFile" ]] && (( ! ${#writeconfig} )); then
 		[[ -f "${fragmentsPATH}/labels/${requiredLabel}.sh" ]] && requiredLabelsArray["$requiredLabel"]=1
 	done
 fi
-
 
 if (( ${#writeconfig} )); then
 	# Create Config file if none already exists
@@ -1370,25 +1380,6 @@ if (( ${#writeconfig} )); then
 		/usr/libexec/PlistBuddy -c 'add ":RequiredLabels" array' "${configFile}"
 	fi
 fi
-
-
-# MOAR Functions! miscellaneous pieces referenced in the occasional label
-# Needs to confirm that labels exist first.
-source "$fragmentsPATH/functions.sh"
-
-# can't install without the 'mator
-# can't check version without the functions.
-checkInstallomator
-
-
-if (( ${#installmode} )); then
-	# Check your privilege
-	if ! $IAMROOT
-	then
-		fatal "Install mode must be run with root/sudo privileges. Re-run Patchomator with\n\t ${YELLOW}sudo zsh patchomator.sh --install${RESET}"
-	fi
-fi
-
 
 # --required
 if [[ -n "$requiredLabels" ]]
