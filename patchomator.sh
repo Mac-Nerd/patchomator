@@ -27,6 +27,7 @@ VERSIONDATE="2025-08-20"
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
 
 # Recent Changes/Fixes:
+# Recommended ignores
 # Dialog Prompt for choices to replace labels with timeout of promptTimeoutMax variable.
 # Speed increases
 # Script Checks
@@ -163,6 +164,10 @@ fi
 
 echo $$ > "$lockfile"
 
+# create a temporary working directory, removed when script exits clean
+tempPath=$(mktemp -d)
+
+
 if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
 	rm -f "$DialogPATH" 2>/dev/null
@@ -171,6 +176,9 @@ fi
 
 [[ -w "$DialogPATH" ]] || DialogPATH="/dev/null"
 
+# These are labels that commonly need sorting out because they are DMG installers for which a PKG also exists, or alternate/localized versions. 
+# If you find this helpful, and want to add other labels to the distributed script, open a PR at https://github.com/Mac-Nerd/patchomator/
+recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
 	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
 	"microsoftonedrivesuprod" "microsoftoutlook-monthly")
@@ -199,6 +207,7 @@ usage() {
 	echo "\tpatchomator.sh [ -ryqvIh -c ConfigFile -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels.\n"
+	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit."
 	echo "\t${BOLD}--version \t${RESET} Show version and exit."
 	echo "\t${BOLD}--fullversion \t${RESET} Show full version and exit."
 	echo "\t${BOLD}--icon \"path to icon.file\" \t${RESET} Set the icon file for Swift Dialog."
@@ -216,7 +225,7 @@ usage() {
 	echo "\t${BOLD}-s | --skipverify \t${RESET} Skips the signature verification step for discovered apps. ${BOLD}Does not skip verifying on installation.${RESET}"
 	echo "\t${BOLD}-g | --gatekeeper \t${RESET} Use spctl to check app against gatekeeper instead of using codesign."
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
-	echo "\t${BOLD}-u | --updatescripts \t${RESET} Update scripts mode. This can be used with install mode to update the installomator and patchomator scripts.\n\t\tThis mode only updates scripts if they have been discovered or added to required list.${BOLD}Requires sudo${RESET}\n"
+	echo "\t${BOLD}-u | --updatescripts \t${RESET} Update scripts mode. This can be used with install mode to update the installomator and patchomator scripts.\n\t\tThis mode only updates scripts if they have been discovered or added to required list. ${BOLD}Requires sudo${RESET}\n"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\t\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-o | --options \"option1=value option2=value ...\"${RESET}\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-m | --mdm \"name\"${RESET}\tOne of jamf, mosyleb, mosylem, addigy, microsoft, ws1, kandji, filewave. Changes the Swift Dialog icon to the respective MDM icon.${RESET}"
@@ -228,6 +237,11 @@ usage() {
 finishAndExit () {
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 	(( ${#quietmode} )) || (( ${#readconfig} )) || echo "quit:" >> $DialogPATH
+
+	# Remove the temporary working directory when done
+	notice "Deleting working directory '$tempPath' and its contents"
+	rm -Rf "$tempPath"
+
 	rm -f "$lockfile" 2>/dev/null
 	exit $1
 }
@@ -407,8 +421,8 @@ installInstallomator() {
 	# Expected Team ID of the downloaded PKG
 	expectedTeamID="JME5BW3F3R"
 
-	tempDirectory=$( mktemp -d )
-	notice "Created working directory '$tempDirectory'"
+# 	tempDirectory=$( mktemp -d )
+# 	notice "Created working directory '$tempDirectory'"
 
 	# Download the installer package
 	dialogProgress "Installing Installomator"
@@ -416,7 +430,7 @@ installInstallomator() {
 	curl --location --silent "$PKGurl" -o "$tempDirectory/Installomator.pkg" || fatal "Download failed."
 
 	# Verify the download
-	teamID=$(spctl -a -vv -t install "$tempDirectory/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
+	teamID=$(spctl -a -vv -t install "$tempPath/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
 	notice "Team ID of downloaded package: $teamID"
 
 	# Install the package, only if Team ID validates
@@ -521,13 +535,13 @@ downloadLatestLabels() {
 	latestURL=$(curl -sSL -o - "https://api.github.com/repos/Installomator/Installomator/releases/latest" | grep tarball_url | awk '{gsub(/[",]/,"")}{print $2}') # remove quotes and comma from the returned string
 	#eg "https://api.github.com/repos/Installomator/Installomator/tarball/v10.3"
 
-	temptarDirectory=$( mktemp -d )
-	tarPath="$temptarDirectory/installomator.latest.tar.gz"
+# 	temptarDirectory=$( mktemp -d )
+ 	tarPath="$tempPath/installomator.latest.tar.gz"
 
 	notice "Downloading ${latestURL} to ${tarPath}"
 	dialogPercent 2 5
 
-	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${temptarDirectory} is writable or re-run as root."
+	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${tempPath} is writable or re-run as root."
 
 	dialogPercent 3 5
 
@@ -931,6 +945,7 @@ verifyApp() {
 }
 
 verifyScript() {
+
 	downloadURL=""
 	type=""
 	local retval=0
@@ -966,7 +981,7 @@ verifyScript() {
 		return 2
 	fi
 	if [[ -n "$downloadURL" ]] && [[ "$type" == "pkg" ]]; then
-		tmpPkgFile="/tmp/$foundLabel.pkg"
+		tmpPkgFile="$tempPath/$foundLabel.pkg"
 		notice "Downloading $downloadURL"
 		curl -sfL "$downloadURL" > "$tmpPkgFile" 2>/dev/null
 		if (( ${#useSpctl} )); then
@@ -983,7 +998,7 @@ verifyScript() {
 			fi
 			if [[ "$expectedTeamID" == "$teamID" ]]; then
 				baseTmpPkgFile=$(basename $tmpPkgFile)
-				expandedPkg="/tmp/${baseTmpPkgFile}_pkg"
+				expandedPkg="$tempPath/${baseTmpPkgFile}_pkg"
 				pkgutil --expand-full "$tmpPkgFile" "$expandedPkg" 2>/dev/null
 				if [[ -d "$expandedPkg" ]]; then
 					fileHashFromPkg=$(md5 -q "$expandedPkg"/*.pkg/Payload/*.sh || md5 -q "$expandedPkg"/Payload/*.sh) 2>/dev/null
@@ -1089,6 +1104,9 @@ if (( ${#showversion} )); then
 fi
 
 if (( ${#showfullversion} )); then
+	echo "$VERSIONDATE - $VERSION - $VERSIONNAME"	
+	InstalledVersion="$($InstallomatorPATH version | tail -1)"
+	echo "Installomator version - $InstalledVersion"
 	echo "Patchomator: version $VERSION ($VERSIONDATE)"
 	exit 0
 fi
@@ -1108,10 +1126,16 @@ if [[ $configFile == $managedConfigFile ]] && (( ${#writeconfig} )); then
 	fatal "You should not manualy overwrite ${YELLOW}$managedConfigFile${RESET}"
 fi
 
-InstallomatorPATH="$defaultInstallomatorPATH"
-if (( ${#cliInstallomatorPATH} )); then
-	if [[ -f "$cliInstallomatorPATH[-1]" ]]; then
-		InstallomatorPATH=$cliInstallomatorPATH[-1]
+InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
+
+if [[ -n $PROXY[-1] ]]; then
+	infoOut "Proxy defined: $PROXY[-1], testing access to it"
+	proxyAddress=$(echo $PROXY[-1] | cut -d ":" -f1)
+	portNumber=$(echo $PROXY[-1] | cut -d ":" -f2)
+	infoOut "Proxy: $proxyAddress, Port: $portNumber"
+	if cmdOutput=$(! nc -z -v -G 10 ${proxyAddress} ${portNumber} 2>&1) ; then
+		infoOut "$cmdOutput"
+		fatal "ERROR : Unable to contact proxy server. Check the address or your network connection."
 	else
 		warning "Could not find file $cliInstallomatorPATH[-1]. Using default of $defaultInstallomatorPATH."
 	fi
