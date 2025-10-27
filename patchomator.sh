@@ -28,6 +28,7 @@ VERSIONNAME="Julyght Speed"
 # Add MDM optimized Non-interactive Mode --mdm "MDMName"
 
 # Recent Changes/Fixes:
+# Recommended ignores
 # Speed increases
 # Script Checks
 # Version output from --version
@@ -167,6 +168,10 @@ fi
 
 echo $$ > "$lockfile"
 
+# create a temporary working directory, removed when script exits clean
+tempPath=$(mktemp -d)
+
+
 if [[ -f /usr/local/bin/dialog ]]; then
 	DialogPATH="/var/tmp/patch_dialog.log"
  	rm -rf $DialogPATH
@@ -175,9 +180,9 @@ fi
 
 [[ -w "$DialogPATH" ]] || DialogPATH="/dev/null"
 
-recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
-	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
- 	"microsoftonedrivesuprod" "microsoftoutlook-monthly")
+# These are labels that commonly need sorting out because they are DMG installers for which a PKG also exists, or alternate/localized versions. 
+# If you find this helpful, and want to add other labels to the distributed script, open a PR at https://github.com/Mac-Nerd/patchomator/
+recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
 
 trap cleanup INT TERM
 
@@ -189,12 +194,12 @@ usage() {
 	echo "\tpatchomator.sh [ -ryqvIh -c configfile -p InstallomatorPATH ]\n"
 	echo "${BOLD}Default:${RESET}"
 	echo "\tScans the system for installed apps and matches them to Installomator labels.\n"
+	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit."
 	echo "\t${BOLD}--version \t${RESET} Show version and exit."
 	echo "\t${BOLD}--fullversion \t${RESET} Show full version and exit."
-	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Show version and exit."
+	echo "\t${BOLD}--proxy \"proxyIP:Port\" \t${RESET} Overrides environment ALL_PROXY for Patchomator."
 	echo "\t${BOLD}--required \"space-separated list of labels to require\""
-	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\"${RESET}\n\t\t If list contains ${YELLOW}'ALL'${RESET} then discovery will be skipped\n\t\t If list contains ${YELLOW}'RECOMMENDEDIGNORES'${RESET} then the recommended list of ignores will be appended.\n"
-	echo "\t${BOLD}-h | --help \t${RESET} Show this text and exit."
+	echo "\t${BOLD}--ignored \"space-separated list of labels to ignore\"${RESET}\n\t\t If list contains ${YELLOW}'ALL'${RESET} then discovery will be skipped\n\t\t If list contains ${YELLOW}'RECOMMENDED'${RESET} then the recommended list of ignores will be appended.\n"
 	echo "\t${BOLD}-w | --write \t${RESET} Write Config. Creates a new config file or refreshes an existing one."
 	echo "\t${BOLD}-r | --read \t${RESET} Read Config. Parses and displays an existing config file."
 	echo "\t${BOLD}-c | --config \"path to config file\" \t${RESET} Overrides default configuration file location. \n\t\tDefault path ${YELLOW}$defaultConfigfile${RESET}"
@@ -205,7 +210,7 @@ usage() {
 	echo "\t${BOLD}-s | --skipverify \t${RESET} Skips the signature verification step for discovered apps. ${BOLD}Does not skip verifying on installation.${RESET}"
 	echo "\t${BOLD}-g | --gatekeeper \t${RESET} Use spctl to check app against gatekeeper instead of using codesign."
 	echo "\t${BOLD}-I | --install \t${RESET} Install mode. This parses an existing configuration and sends the commands to Installomator to update. ${BOLD}Requires sudo${RESET}"
-	echo "\t${BOLD}-u | --updatescripts \t${RESET} Update scripts mode. This can be used with install mode to update the installomator and patchomator scripts.\n\t\tThis mode only updates scripts if they have been discovered or added to required list.${BOLD}Requires sudo${RESET}\n"
+	echo "\t${BOLD}-u | --updatescripts \t${RESET} Update scripts mode. This can be used with install mode to update the installomator and patchomator scripts.\n\t\tThis mode only updates scripts if they have been discovered or added to required list. ${BOLD}Requires sudo${RESET}\n"
 	echo "\t${BOLD}-p | --pathtoinstallomator \"path to Installomator.sh\"${RESET}\n\t\tDefault Installomator Path ${YELLOW}/usr/local/Installomator/Installomator.sh${RESET}"
 	echo "\t${BOLD}-o | --options \"option1=value option2=value ...\"${RESET}\tCommand line options passed through to Installomator.${RESET}"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator${RESET}"
@@ -216,6 +221,11 @@ finishAndExit () {
 	echo "Patchomator finished: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
 	(( ${#quietmode} )) || (( ${#readconfig} )) || echo "quit:" >> $DialogPATH
 	rm -f "$lockfile"
+
+	# Remove the temporary working directory when done
+	notice "Deleting working directory '$tempPath' and its contents"
+	rm -Rf "$tempPath"
+
 	exit $1
 }
 
@@ -360,29 +370,29 @@ installInstallomator() {
 	# Expected Team ID of the downloaded PKG
 	expectedTeamID="JME5BW3F3R"
 
-	tempDirectory=$( mktemp -d )
-	notice "Created working directory '$tempDirectory'"
+# 	tempDirectory=$( mktemp -d )
+# 	notice "Created working directory '$tempDirectory'"
 
 	# Download the installer package
 	notice "Downloading Installomator package"
-	curl --location --silent "$PKGurl" -o "$tempDirectory/Installomator.pkg" || fatal "Download failed."
+	curl --location --silent "$PKGurl" -o "$tempPath/Installomator.pkg" || fatal "Download failed."
 
 	# Verify the download
-	teamID=$(spctl -a -vv -t install "$tempDirectory/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
+	teamID=$(spctl -a -vv -t install "$tempPath/Installomator.pkg" 2>&1 | awk '/origin=/ {print $NF }' | tr -d '()')
 	notice "Team ID of downloaded package: $teamID"
 
 	# Install the package, only if Team ID validates
 	if [ "$expectedTeamID" = "$teamID" ]
 	then
 		notice "Package verified. Installing package Installomator.pkg"
-		installer -pkg "$tempDirectory/Installomator.pkg" -target / -verbose || fatal "Installation failed. See /var/log/installer.log for details."
+		installer -pkg "$tempPath/Installomator.pkg" -target / -verbose || fatal "Installation failed. See /var/log/installer.log for details."
 	else
 		fatal "Package verification failed. TeamID does not match."
 	fi
-
-	# Remove the temporary working directory when done
-	notice "Deleting working directory '$tempDirectory' and its contents"
-	rm -Rf "$tempDirectory"
+# 
+# 	# Remove the temporary working directory when done
+# 	notice "Deleting working directory '$tempDirectory' and its contents"
+# 	rm -Rf "$tempDirectory"
 
 }
 
@@ -469,13 +479,13 @@ downloadLatestLabels() {
 	latestURL=$(curl -sSL -o - "https://api.github.com/repos/Installomator/Installomator/releases/latest" | grep tarball_url | awk '{gsub(/[",]/,"")}{print $2}') # remove quotes and comma from the returned string
 	#eg "https://api.github.com/repos/Installomator/Installomator/tarball/v10.3"
 
-	temptarDirectory=$( mktemp -d )
-	tarPath="$temptarDirectory/installomator.latest.tar.gz"
+# 	temptarDirectory=$( mktemp -d )
+ 	tarPath="$tempPath/installomator.latest.tar.gz"
 
 	notice "Downloading ${latestURL} to ${tarPath}"
 	dialogPercent 2 5
 
-	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${temptarDirectory} is writable or re-run as root."
+	curl -sSL -o "$tarPath" "$latestURL" || fatal "Unable to download. Check ${tempPath} is writable or re-run as root."
 
 	dialogPercent 3 5
 
@@ -484,9 +494,9 @@ downloadLatestLabels() {
 	touch "${fragmentsPATH}/labels/"
 	dialogPercent 5 5
 
-	# Remove the temporary working directory when done
-	notice "Deleting working directory '$temptarDirectory' and its contents"
-	rm -Rf "$temptarDirectory"
+# 	# Remove the temporary working directory when done
+# 	notice "Deleting working directory '$temptarDirectory' and its contents"
+# 	rm -Rf "$temptarDirectory"
 }
 
 # --install
@@ -828,6 +838,7 @@ verifyApp() {
 }
 
 verifyScript() {
+
 	downloadURL=""
 	type=""
 	local retval=0
@@ -863,7 +874,7 @@ verifyScript() {
 		return 2
 	fi
 	if [[ -n "$downloadURL" ]] && [[ "$type" == "pkg" ]]; then
-		tmpPkgFile="/tmp/$foundLabel.pkg"
+		tmpPkgFile="$tempPath/$foundLabel.pkg"
 		notice "Downloading $downloadURL"
 		curl -sfL "$downloadURL" > "$tmpPkgFile" 2>/dev/null
 		if (( ${#useSpctl} )); then
@@ -880,7 +891,7 @@ verifyScript() {
 			fi
 			if [[ "$expectedTeamID" == "$teamID" ]]; then
 				baseTmpPkgFile=$(basename $tmpPkgFile)
-				expandedPkg="/tmp/${baseTmpPkgFile}_pkg"
+				expandedPkg="$tempPath/${baseTmpPkgFile}_pkg"
 				pkgutil --expand-full "$tmpPkgFile" "$expandedPkg" 2>/dev/null
 				if [[ -d "$expandedPkg" ]]; then
 					fileHashFromPkg=$(md5 -q "$expandedPkg"/*.pkg/Payload/*.sh || md5 -q "$expandedPkg"/Payload/*.sh) 2>/dev/null
@@ -984,8 +995,9 @@ if (( ${#showversion} )); then
 fi
 
 if (( ${#showfullversion} )); then
-	echo "$VERSIONDATE - $VERSION"
-	echo "$VERSIONNAME"
+	echo "$VERSIONDATE - $VERSION - $VERSIONNAME"	
+	InstalledVersion="$($InstallomatorPATH version | tail -1)"
+	echo "Installomator version - $InstalledVersion"
 	exit 0
 fi
 
@@ -1013,7 +1025,7 @@ if [[ -n $PROXY[-1] ]]; then
 	infoOut "Proxy: $proxyAddress, Port: $portNumber"
 	if cmdOutput=$(! nc -z -v -G 10 ${proxyAddress} ${portNumber} 2>&1) ; then
 		infoOut "$cmdOutput"
-		infoOut "ERROR : No proxy connection, skipping this."
+		fatal "ERROR : Unable to contact proxy server. Check the address or your network connection."
 	else
 		infoOut "Proxy access detected, so using that."
 		export ALL_PROXY="$PROXY[-1]"
@@ -1127,7 +1139,7 @@ if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" !
 		--progress 100 \
 		--button1text "..." \
 		--ontop \
-		--movable \
+		--moveable \
 		--commandfile "$DialogPATH" > /dev/null 2>&1 &
 	sleep 0.1
 	dialogPID=$(pgrep -f "$DialogPATH" | tail -n 1)
@@ -1258,7 +1270,7 @@ then
 			skipDiscovery=true
 			continue
 		fi
-		if [[ "$lowerLabel" == "recommendedignores" ]]; then
+		if [[ "$lowerLabel" == "recommended" ]]; then
 			notice "[CLI] Also ignoring labels: $recommendedIgnores"
 			for recIgnoreLabel in $recommendedIgnores; do
 				if [[ -f "${fragmentsPATH}/labels/${recIgnoreLabel}.sh" ]]; then
