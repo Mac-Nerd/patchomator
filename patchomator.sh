@@ -1,7 +1,8 @@
 #!/bin/zsh
 
-VERSION="1.1.4"
-VERSIONDATE="2025-08-20"
+VERSION="1.2"
+VERSIONDATE="2025-10-27"
+VERSIONNAME="One Point Spooky"
 
 # Gigantic Thanks to:
 #	rondelltron
@@ -179,9 +180,6 @@ fi
 # These are labels that commonly need sorting out because they are DMG installers for which a PKG also exists, or alternate/localized versions. 
 # If you find this helpful, and want to add other labels to the distributed script, open a PR at https://github.com/Mac-Nerd/patchomator/
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
-recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise"
-	"microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders"
-	"microsoftonedrivesuprod" "microsoftoutlook-monthly")
 
 ### Default Installomator Options:
 InstallomatorOptions=(\
@@ -310,6 +308,13 @@ displayConfig() {
 		echo "\n${BOLD}Required Labels:${RESET}"
 		printf "%s\n" ${(o)${(k)requiredLabelsArray//\"/}}
 		echo ""
+		
+		if (( appNeedsUpdates > 0 )); then
+			echo "${BOLD}$appNeedsUpdates of $uniqueAppTotal found labels need updates.${RESET}"
+		elif (( processedLabels > 0 )); then
+			echo "${BOLD}None of the found apps need updates.${RESET}"
+		fi
+		
 	fi
 }
 
@@ -739,7 +744,7 @@ verifyApp() {
 	appPath="$2"
 	appNewVersion=""
 
-	infoOut "Verifying: $appPath"
+	infoOut "Checking: $appPath"
 	notice "--- Processing Label $foundLabel at $appPath"
 
 	if [[ -n "$configArray[$appPath]" ]]
@@ -748,6 +753,8 @@ verifyApp() {
 	else
 		if (( ! ${#skipVerify} ))
 		then
+			infoOut "Verifying: $appPath"
+
 			# verify with spctl or codesign
 			if (( ${#useSpctl} )); then
 				appVerify=$(spctl -a -vv "$appPath" 2>&1 )
@@ -1103,9 +1110,21 @@ if (( ${#showversion} )); then
 	exit 0
 fi
 
+# Is Installomator installed somewhere other than the default?
+if (( ${#cliInstallomatorPATH} )); then
+	InstallomatorPATH=$cliInstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
+	if [[ ! -f "$InstallomatorPATH" ]]; then
+		warning "Could not find file $cliInstallomatorPATH[-1]. Using default of $defaultInstallomatorPATH."
+		InstallomatorPATH="$defaultInstallomatorPATH"
+	fi
+else
+	InstallomatorPATH="$defaultInstallomatorPATH"
+fi
+
+
 if (( ${#showfullversion} )); then
 	echo "$VERSIONDATE - $VERSION - $VERSIONNAME"	
-	InstalledVersion="$($InstallomatorPATH version | tail -1)"
+	InstalledVersion=$($InstallomatorPATH version | tail -1) 
 	echo "Installomator version - $InstalledVersion"
 	echo "Patchomator: version $VERSION ($VERSIONDATE)"
 	exit 0
@@ -1126,7 +1145,6 @@ if [[ $configFile == $managedConfigFile ]] && (( ${#writeconfig} )); then
 	fatal "You should not manualy overwrite ${YELLOW}$managedConfigFile${RESET}"
 fi
 
-InstallomatorPATH=$InstallomatorPATH[-1] # either provided on the command line, or default /usr/local/Installomator
 
 if [[ -n $PROXY[-1] ]]; then
 	infoOut "Proxy defined: $PROXY[-1], testing access to it"
@@ -1137,9 +1155,13 @@ if [[ -n $PROXY[-1] ]]; then
 		infoOut "$cmdOutput"
 		fatal "ERROR : Unable to contact proxy server. Check the address or your network connection."
 	else
-		warning "Could not find file $cliInstallomatorPATH[-1]. Using default of $defaultInstallomatorPATH."
+		infoOut "Proxy access successful."
+		export ALL_PROXY="$PROXY[-1]"
 	fi
 fi
+
+
+
 
 promptTimeoutMax=$defaultPromptTimeoutMax
 if (( ${#cliTimeout} )); then
@@ -1574,12 +1596,6 @@ if [[ $skipDiscovery != true ]]; then
 		fi
 	done
 
-	if (( appNeedsUpdates > 0 )); then
-		infoOut "${BOLD}$appNeedsUpdates of the $uniqueAppTotal found labels need updates.${RESET}"
-	elif (( processedLabels > 0 )); then
-		infoOut "${BOLD}None of the found apps need updates.${RESET}"
-	fi
-
 	kill "$caffeinatepid" 2>/dev/null
 fi
 # end discovery
@@ -1614,9 +1630,9 @@ if (( ${#installmode} )); then
 	done
 
 	[[ ${#appUpToDateList} -gt 0 ]] && notice "Up to date apps: $appUpToDateList"
-	notice "Labels to install: $labelsList"
-	notice "Ignoring labels: $ignoredLabelsList"
-	notice "Required labels: $requiredLabelsList"
+	[[ ${#labelsList} -gt 0 ]] && notice "Labels to install: $labelsList"
+	[[ ${#ignoredLabelsList} -gt 0 ]] && notice "Ignoring labels: $ignoredLabelsList"
+	[[ ${#requiredLabelsList} -gt 0 ]] && notice "Required labels: $requiredLabelsList"
 
 	queuedLabelsArray=("${installLabelsList[@]}")
 	numLabels=${#queuedLabelsArray[@]}

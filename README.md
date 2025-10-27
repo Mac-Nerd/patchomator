@@ -1,7 +1,7 @@
 ![Patchomator icon and text](https://github.com/Mac-Nerd/patchomator/blob/1.1/images/patchomator-banner.png?raw=true)
 
 # Patchomator
-A management script for Installomator. Work in progress.
+A management script for Installomator. Always a work in progress.
 
 ## What does it do?
 Installomator uses small scripts designed to check if a specified app is installed, and if so, what version. If the latest version is not already installed, Installomator proceeds to download and install the necessary update. Each of these script fragments is a "label" used to call Installomator to install or update a particular app.
@@ -18,7 +18,7 @@ _Installomator is Copyright 2020 Armin Briegel, Scripting OS X_
 
 Download the latest PKG installer from the [Releases page](https://github.com/Mac-Nerd/patchomator/releases). 
 
-Or you can download or clone this repo, copy or move `patchomator.sh` to the same location as Installomator, and set it executable.
+Or you can download and clone this repo, copy or move `patchomator.sh` to the same location as Installomator, and set it executable.
 
 ```
 curl -LO https://github.com/Mac-Nerd/patchomator/raw/main/patchomator.sh
@@ -31,26 +31,55 @@ sudo mv patchomator.sh /usr/local/Installomator/
 
 ### Command line
 
- `./patchomator.sh`
-*Dry Run.* Without the `--install` option, Patchomator will run interactively, and search the system for applications that can be upgraded by Installomator. The user will be prompted to yes/no when duplicate or ambiguous app names are found.
-
- `-y` | `--yes`
-The `--yes` option will accept the default or first choice at each prompt. Frustratingly, this is sometimes "No".
+`./patchomator.sh`
+*Dry Run or Discovery mode* Without the `--install` option, Patchomator will run interactively, and search the system for applications that can be upgraded by Installomator. The user will be prompted to yes/no when duplicate or ambiguous app names are found.
 
 When finished, the script will output its findings but not install anything. The configuration won't be saved unless `--write` is specified.
 
- `-w` | `--write` 
-Runs as normal, and creates or updates a configuration file at the default plist path `/Library/Application Support/Patchomator/patchomator.plist`.
+`-y` | `--yes`
+*Non-Interactive discovery mode* The `--yes` option will accept the default or first choice at each prompt. Frustratingly, this is sometimes "No".
 
- `-r` | `--read`
-Displays the current configuration, based on an existing configuration file at the default plist path `/Library/Application Support/Patchomator/patchomator.plist`. 
+`-w` | `--write` 
+Runs Discovery as normal, and creates or updates a configuration file at the default config path `/Library/Application Support/Patchomator/patchomator.plist` unless otherwise specified by `-c` _see below_.
 
- `-I` | `--install`
-Scans the system for installed apps and matches them to Installomator labels. Launches Installomator to update any that are not up to date. If an existing configuration file is found, the ignored and required will be added or removed from the list of found apps. *Test before use.*
+`-r` | `--read`
+Displays the current configuration, then exits. Assumes an existing configuration file at the default config path `/Library/Application Support/Patchomator/patchomator.plist` unless otherwise specified by `-c` _see below_.
 
- `-I` | `--install` with `--ignored "ALL"`
-Skips scanning the system for installed apps and launches Installomator to update all apps in a config file. If there is no config file, this will do nothing. *Test before use.*  
-<br />
+`-I` | `--install`
+*Installation Mode* Scans the system for installed apps and matches them to Installomator labels. Launches Installomator to update any that are not up to date. If an existing configuration file is found, the ignored and required apps will be added or removed from the list of found apps. *Requires sudo or admin rights*
+
+#### Configuration switches
+
+`--ignored "Space separated list of labels to ignore"|"ALL"`  
+`--required "Space separated list of labels to require"`  
+Optional list of ignored and/or required labels can be added to fine-tune the installation operation. See the section "*Ignored and Required Labels*" for more details.
+
+`-e` | `--everywhere`
+Allows for searching the entire filesystem for applications during discovery. By default, only apps installed in /Applications, /usr/local and /Library are discovered.
+
+`-t` | `--timeout` integer
+Sets the timeout for user prompts to specified number of seconds. Default 120. Cannot be less than 10 or more than 9000.
+
+`-c` | `--config "path to config file"`
+Override the default configuration file location for `--read --write` or `--install` options.
+
+`-p` | `--pathtoinstallomator "/path/to/Installomator.sh"`
+Overrides the default Installomator path for `--install` option.
+
+`--options "option1=value option2=value ..."`
+Command line options to pass to Installomator during installation mode. Multiple command line option should be separated by spaces, and inside quotes. For more information, see the [Installomator Wiki](https://github.com/Installomator/Installomator/wiki/Configuration-and-Variables)
+
+`-g` | `--gatekeeper`
+Switches to using `spctl` to perform additional security assessments of installed applications instead of the faster signature check, `codesign`.
+
+`-s` | `--skipverify`
+Skips the signature verification step for discovered apps. Does not skip verifying on installation. *Overrides `-g`.*
+
+`-u` | `--updatescripts`
+Allow for Patchomator to update itself and Installomator if they are not the latest version. *Use with caution.*
+
+`--proxy "proxy.address:port"`
+Tests and sets the ALL_PROXY environment variable if successful to the Proxy address using the specified port.
 
 #### Additional switches
 
@@ -58,51 +87,26 @@ Skips scanning the system for installed apps and launches Installomator to updat
 Displays the current version of this script.
 
 `--fullversion`
-Displays the full version of this script including the build date and build name.
-
-`--ignored "Space seperated list of labels to ignore"`  
-`--required "Space seperated list of labels to require"`  
-Optional list of ignored and/or required labels can be added to fine-tune the installation operation. See the section "*Ignored and Required Labels*" for more details.
-
-`-e` | `--everywhere`
-Allows for searching the entire filesystem for applications during discovery. By default, apps installed in /Applications, /usr/local and /Library are discovered.
-
-`-c` | `--config "path to config file"`
-Override the default configuration file location for `--read --write` or `--install` options.
-
-`-p` | `--pathtoinstallomator "path to Installomator.sh"`
-Overrides the default Installomator path for `--install` option.
-
-`--options "option1=value option2=value ..."` 	 Command line options to pass to Installomator during installation mode. Multiple command line option should be separated by spaces, and inside quotes. For more information, see the [Installomator Wiki](https://github.com/Installomator/Installomator/wiki/Configuration-and-Variables)
-
-`-s` | `--skipverify`
-Skips the signature verification step for discovered apps. *Does not skip verifying on installation.*
+Displays the full version of this script including the build date and build name, along with the discovered version of Installomator.
 
 `-q` | `--quiet`
 *Quiet mode*. Minimal output.
 
 `-v` | `--verbose`
-*Verbose mode*. Logs more information to stdout. Overrides -q
+*Verbose mode*. Logs more information to stdout. Overrides `-q`
 
 `-h` | `--help`
 Show usage message and exits.
 
-`--proxy "pro.xy.addr.ess:port"`
-Tests and sets the ALLPROXY environment variable if successful to the Proxy address using the specified port.
 
-`-g` | `--gatekeeper`
-Switches to using SPCTL to verify applications instead of the faster codesign. SPCTL checks Gatekeeper to make sure the application can run, while codesign just verifies the signature of the application.
-
-`-u` | `--updatescripts`
-Allow for Installomator and Patchomator scripts to be updated if they are not the latest version. *Test before use.*
-
+### Default interactive usage
 When run, Patchomator will prompt you to install Installomator, if it doesn't already exist at the default path or the one specified with `-p [InstallomatorPATH]`. Patchomator will happily run without Installomator, but can't actually install any updates by itself.
 
-If the Installomator label files are not present, or are older than 30 days, they will be downloaded from the latest Installomator release on GitHub and put in a directory called "fragments" in the same directory as patchomator.sh
+If the Installomator label files are not present, or are older than 30 days, they will be downloaded from the _latest Installomator release_ on GitHub and put in a directory called "fragments" in the same directory as patchomator.sh
+
 
 ### Configuration
-
-When written using the `--write` option, the file `patchomator.plist` contains a list of the applications found on the system, and the corresponding Installomator labels which can be used to install or update each. By default, Patchomator will look for its configuration file in `/Library/Preferences/Patchomator` but the full path can be overridden with the `-c` or `--config` command line switch.
+Once written using the `--write` option, the file `patchomator.plist` contains a list of the applications discovered on the system, and the corresponding Installomator labels which can be used to install or update each. By default, Patchomator will look for its configuration file in `/Library/Preferences/Patchomator` but the full path can be overridden with the `-c` or `--config` command line switch.
 
 The current state of the configuration can be read with the following command 
 
@@ -143,7 +147,7 @@ Specific labels can be ignored in two ways. First, the `IgnoredLabels` array can
 
 ```defaults write /path/to/patchomator.plist IgnoredLabels -array label1 label2 label3```
 
-_Note: This will replace any existing `IgnoredLabels` array that already exists in the plist._
+_Note: This will replace any existing `IgnoredLabels` array that already exists in the configuration plist._
 
 Alternately, you may ignore labels at runtime by listing them on the command line with the `--ignored` command line switch. The list of labels follows `--ignored` as a quoted string, separated by spaces.
 
@@ -159,13 +163,43 @@ and as a one-time switch on the command line with `--required`
 
 ```patchomator.sh --required "googlechromepkg zoom"```
 
-There are two special labels that can be added to the list at the command line that perform extra tasks. If you specify 'ALL' for an ignored label, then all discovery will be skipped. If you specify 'RECOMMENDED' for an ignored label, then a recommended list of ignores will be added to the ignore list.
+#### Ignoring ALL and RECOMMENDED labels
+There are two special labels that can be added to the list at the command line that perform extra tasks.
+
+`--ignored=ALL` will skip discovery entirely and proceed with the next configured task.
+
+`--ignored=RECOMMENDED` adds a recommended list of duplicate and conflicting labels to the ignored list. This 
+
+The current list of recommended ignored labels is:
+- bbedit
+- firefox
+- firefox_da
+- firefox_intl
+- firefoxesr
+- firefoxesr_intl
+- firefoxpkg_intl
+- googlechrome
+- googlechromeenterprise
+- microsoftofficebusinesspro
+- microsoftonedrive-deferred
+- microsoftonedrive-rollingout
+- microsoftonedrive-rollingoutdeferred
+- microsoftonedrivesuinsiders
+- microsoftonedrivesuprod
+- microsoftoutlook-monthly
+- zoomgov
+- zoomclient
+- virtualboxbeta
+- virtualboxlatest
+- virtualboxstable 
+
+To suggest additional recommended labels, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues). Installomator is adding and updating its supported apps and labels all the time, so this list will likely change frequently.
 
 ### MDM instructions
 
 More detail coming soon. For now, have a look at [the MDM folder](https://github.com/Mac-Nerd/patchomator/tree/main/MDM) for a starting point.
 
-If you currently use Patchomator with an MDM, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues) and let me know if you have any questions, or want to share your setup.
+If you currently use Patchomator with your MDM, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues) and let me know if you have any questions, or want to share your setup.
 
 
 ## Swift Dialog
@@ -176,10 +210,10 @@ As of 1.1, Patchomator will display progress and other messages via [Swift Dialo
 
 You can suppress these dialogs with the `--quiet` command line switch.
 
-Currently, the dialogs cannot be customized. If you would like to be able to, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues) and let me know.
+Currently, the dialogs cannot be customized beyond the `--icon` command line switch. If that is a feature you're interested in, please [open an issue](https://github.com/Mac-Nerd/patchomator/issues) and let me know.
 
 
-## Patching with Patchomator
+## Workflow: Patching with Patchomator
 
 ### Run discovery
 <pre><code>% sudo /usr/local/Installomator/patchomator.sh
