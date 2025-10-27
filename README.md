@@ -159,7 +159,7 @@ and as a one-time switch on the command line with `--required`
 
 ```patchomator.sh --required "googlechromepkg zoom"```
 
-There are two special labels that can be added to the list at the command line that perform extra tasks. If you specify 'ALL' for an ignored label, then all discovery will be skipped. If you specify 'RECOMMENDEDIGNORES' for an ignored label, then a recommended list of ignores will be added to the ignore list.
+There are two special labels that can be added to the list at the command line that perform extra tasks. If you specify 'ALL' for an ignored label, then all discovery will be skipped. If you specify 'RECOMMENDED' for an ignored label, then a recommended list of ignores will be added to the ignore list.
 
 ### MDM instructions
 
