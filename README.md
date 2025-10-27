@@ -16,14 +16,16 @@ _Installomator is Copyright 2020 Armin Briegel, Scripting OS X_
 
 ## Installation
 
-Download the latest PKG installer from the [Releases page](https://github.com/Mac-Nerd/patchomator/releases). 
+Option 1: Download the latest PKG installer from the [Releases page](https://github.com/Mac-Nerd/patchomator/releases).
 
-Or you can download and clone this repo, copy or move `patchomator.sh` to the same location as Installomator, and set it executable.
+Option 2: Install via Installomator label "patchomator"
+
+Option 3: Download and clone this repo, then copy or move `patchomator.sh` to the same location as Installomator, and set it executable.
 
 ```
-curl -LO https://github.com/Mac-Nerd/patchomator/raw/main/patchomator.sh
-chmod a+x patchomator.sh
-sudo mv patchomator.sh /usr/local/Installomator/
+git clone https://github.com/Mac-Nerd/patchomator.git
+chmod a+x patchomator/patchomator.sh
+sudo mv patchomator/patchomator.sh /usr/local/Installomator/
 ```
 
 
