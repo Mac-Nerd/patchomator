@@ -181,6 +181,13 @@ fi
 # If you find this helpful, and want to add other labels to the distributed script, open a PR at https://github.com/Mac-Nerd/patchomator/
 recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
 
+### Update Window & Meeting Detection defaults
+# Set to empty to disable. Values are 24h integers (0-23).
+# Example: start=18 end=8 means updates allowed 6 PM - 8 AM only.
+defaultUpdateWindowStart=""
+defaultUpdateWindowEnd=""
+defaultCheckMeetingStatus=""
+
 ### Default Installomator Options:
 InstallomatorOptions=(\
 [NOTIFY]=success \
@@ -228,6 +235,9 @@ usage() {
 	echo "\t${BOLD}-o | --options \"option1=value option2=value ...\"${RESET}\tCommand line options passed through to Installomator.${RESET}"
 	echo "\t${BOLD}-m | --mdm \"name\"${RESET}\tOne of jamf, mosyleb, mosylem, addigy, microsoft, ws1, kandji, filewave. Changes the Swift Dialog icon to the respective MDM icon.${RESET}"
 	echo "\t${BOLD}-t | --timeout integer${RESET}\tSets the replace label timeout to specified integer. Cannot be less than 10 or over 9000 or it will default to $defaultPromptTimeoutMax seconds.${RESET}"
+	echo "\t${BOLD}--window-start integer${RESET}\tUpdate window start hour (24h, 0-23). Updates only run between start and end.${RESET}"
+	echo "\t${BOLD}--window-end integer${RESET}\tUpdate window end hour (24h, 0-23). Example: --window-start 18 --window-end 8 allows 6 PM to 8 AM.${RESET}"
+	echo "\t${BOLD}--check-meetings${RESET}\tCheck for active video calls (Zoom, Meet, Teams, FaceTime) and defer if detected.${RESET}"
 	echo "${YELLOW}See readme for more options and examples: ${BOLD}https://github.com/mac-nerd/Patchomator${RESET}"
 	exit 0
 }
@@ -561,6 +571,132 @@ downloadLatestLabels() {
 }
 
 # --install
+#######################################
+# Update Window Check
+# Compares current hour against allowed update window.
+# Returns 0 if within window (OK to update), 1 if outside (defer).
+# Window wraps around midnight: start=18 end=8 means 6PM-8AM is allowed.
+checkUpdateWindow() {
+	local windowStart="$1"
+	local windowEnd="$2"
+	local currentHour=$(date +%H | sed 's/^0//')
+
+	if [[ -z "$windowStart" ]] || [[ -z "$windowEnd" ]]; then
+		notice "No update window configured, proceeding."
+		return 0
+	fi
+
+	# Validate inputs are integers
+	if [[ ! "$windowStart" =~ ^[0-9]+$ ]] || [[ ! "$windowEnd" =~ ^[0-9]+$ ]]; then
+		warning "Invalid update window values (start=$windowStart, end=$windowEnd). Ignoring."
+		return 0
+	fi
+
+	if (( windowStart > windowEnd )); then
+		# Window wraps midnight: e.g., 18-8 means allowed 18-23 and 0-7
+		if (( currentHour >= windowStart || currentHour < windowEnd )); then
+			notice "Current hour ($currentHour) is within update window ($windowStart:00-$windowEnd:00). Proceeding."
+			return 0
+		fi
+	else
+		# Window within same day: e.g., 22-6 doesn't wrap, but 8-18 means allowed 8-17
+		if (( currentHour >= windowStart && currentHour < windowEnd )); then
+			notice "Current hour ($currentHour) is within update window ($windowStart:00-$windowEnd:00). Proceeding."
+			return 0
+		fi
+	fi
+
+	infoOut "Current hour ($currentHour) is outside update window ($windowStart:00-$windowEnd:00). Deferring."
+	return 1
+}
+
+#######################################
+# Meeting Detection
+# Checks for active video calls, screen sharing, or presentations.
+# Returns 0 if no meeting detected (OK to update), 1 if meeting active (defer).
+checkMeetingStatus() {
+	local currentUser
+	currentUser=$(stat -f%Su /dev/console)
+
+	if [[ -z "$currentUser" ]] || [[ "$currentUser" == "root" ]] || [[ "$currentUser" == "loginwindow" ]]; then
+		notice "No user logged in, OK to update."
+		return 0
+	fi
+
+	# Check for Focus/Do Not Disturb (macOS 12+)
+	local focusState=0
+	focusState=$(plutil -extract data.0.storeAssertionRecords json -o - \
+		"/Users/$currentUser/Library/DoNotDisturb/DB/Assertions.json" 2>/dev/null | \
+		grep -c "assertionIdentifier" 2>/dev/null) || focusState=0
+	[[ ! "$focusState" =~ ^[0-9]+$ ]] && focusState=0
+	if [[ "$focusState" -gt 0 ]]; then
+		infoOut "Focus/DND mode active. Deferring updates."
+		return 1
+	fi
+
+	# Check for active Zoom meeting
+	if pgrep -x "zoom.us" > /dev/null 2>&1; then
+		if pgrep -x "CptHost" > /dev/null 2>&1; then
+			infoOut "Active Zoom meeting detected. Deferring updates."
+			return 1
+		fi
+	fi
+
+	# Check for active Google Meet (in Chrome)
+	if pgrep -x "Google Chrome" > /dev/null 2>&1; then
+		local meetTab
+		meetTab=$(osascript -e '
+			tell application "Google Chrome"
+				repeat with w in windows
+					repeat with t in tabs of w
+						if URL of t contains "meet.google.com" then
+							return "active"
+						end if
+					end repeat
+				end repeat
+			end tell
+			return "none"
+		' 2>/dev/null)
+		if [[ "$meetTab" == "active" ]]; then
+			infoOut "Active Google Meet detected. Deferring updates."
+			return 1
+		fi
+	fi
+
+	# Check for active Microsoft Teams call
+	if pgrep -x "Microsoft Teams" > /dev/null 2>&1; then
+		if lsof 2>/dev/null | grep -qi "teams.*coreaudio\|teams.*applecamera"; then
+			infoOut "Active Microsoft Teams call detected. Deferring updates."
+			return 1
+		fi
+	fi
+
+	# Check for active FaceTime call
+	if pgrep -x "FaceTime" > /dev/null 2>&1; then
+		if pgrep -x "avconferenced" > /dev/null 2>&1; then
+			infoOut "Active FaceTime call detected. Deferring updates."
+			return 1
+		fi
+	fi
+
+	# Check for active screen sharing/recording
+	if pgrep -x "screencaptureui" > /dev/null 2>&1; then
+		infoOut "Screen sharing/recording active. Deferring updates."
+		return 1
+	fi
+
+	# Check for Keynote slideshow
+	if pgrep -x "Keynote" > /dev/null 2>&1; then
+		if osascript -e 'tell application "Keynote" to return playing' 2>/dev/null | grep -q "true"; then
+			infoOut "Keynote presentation in progress. Deferring updates."
+			return 1
+		fi
+	fi
+
+	notice "No active meetings detected."
+	return 0
+}
+
 doInstallations() {
 
 	infoOut "Performing installations."
@@ -1073,6 +1209,9 @@ zparseopts -D -E -F -K -- \
 -everywhere=everywhere e=everywhere \
 -options:=cliOptions o:=cliOptions \
 -proxy:=cliPROXY \
+-window-start:=cliWindowStart \
+-window-end:=cliWindowEnd \
+-check-meetings=checkMeetings \
 || fatal "Bad command line option. See patchomator.sh --help"
 
 # -h --help
@@ -1302,6 +1441,51 @@ elif [[ ! -f "$logPATH" ]] then
 fi
 
 echo "Patchomator starting: $(date '+%F %H:%M:%S')" | tee -a "$logPATH"
+
+# -------------------------------------------------------------------------
+# Update Window & Meeting Detection (checked before any work)
+# -------------------------------------------------------------------------
+# Resolve update window: CLI flags > managed plist > defaults
+updateWindowStart="$defaultUpdateWindowStart"
+updateWindowEnd="$defaultUpdateWindowEnd"
+meetingDetection="$defaultCheckMeetingStatus"
+
+# Read from managed plist if present
+if [[ -f "$managedConfigFile" ]]; then
+	plistWindowStart=$(/usr/libexec/PlistBuddy -c "Print :UpdateWindowStart" "$managedConfigFile" 2>/dev/null)
+	plistWindowEnd=$(/usr/libexec/PlistBuddy -c "Print :UpdateWindowEnd" "$managedConfigFile" 2>/dev/null)
+	plistCheckMeetings=$(/usr/libexec/PlistBuddy -c "Print :CheckMeetingStatus" "$managedConfigFile" 2>/dev/null)
+	[[ -n "$plistWindowStart" ]] && updateWindowStart="$plistWindowStart"
+	[[ -n "$plistWindowEnd" ]] && updateWindowEnd="$plistWindowEnd"
+	[[ -n "$plistCheckMeetings" ]] && meetingDetection="$plistCheckMeetings"
+fi
+
+# CLI flags override everything
+if (( ${#cliWindowStart} )); then
+	updateWindowStart="$cliWindowStart[-1]"
+fi
+if (( ${#cliWindowEnd} )); then
+	updateWindowEnd="$cliWindowEnd[-1]"
+fi
+if (( ${#checkMeetings} )); then
+	meetingDetection="true"
+fi
+
+# Check update window (only in install mode — discovery can run anytime)
+if (( ${#installmode} )) && [[ -n "$updateWindowStart" ]] && [[ -n "$updateWindowEnd" ]]; then
+	if ! checkUpdateWindow "$updateWindowStart" "$updateWindowEnd"; then
+		echo "Outside update window ($updateWindowStart:00-$updateWindowEnd:00). Exiting." | tee -a "$logPATH"
+		finishAndExit 0
+	fi
+fi
+
+# Check for active meetings (only in install mode)
+if (( ${#installmode} )) && [[ "$meetingDetection" == "true" ]]; then
+	if ! checkMeetingStatus; then
+		echo "Active meeting detected. Deferring updates." | tee -a "$logPATH"
+		finishAndExit 0
+	fi
+fi
 
 notice "Option Count ${#InstallomatorOptions[@]}"
 notice "Installomator Options:"
