@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-VERSION="1.2"
+VERSION="1.2-om1"
 VERSIONDATE="2025-10-27"
 VERSIONNAME="One Point Spooky"
 
@@ -729,6 +729,7 @@ dialogTimeoutPrompt() {
 		--button2text "$button2" \
 		--ontop \
 		--moveable \
+		--windowbuttons min \
 		--position "center" \
 		--commandfile "$commandFile" > /dev/null 2>&1
 	dialogTimeoutRet=$(echo $?)
@@ -1345,6 +1346,7 @@ if (( ! ${#quietmode} )) && [[ -f /usr/local/bin/dialog ]] && [[ "$DialogPATH" !
 		--button1text "..." \
 		--ontop \
 		--moveable \
+		--windowbuttons min \
 		--position "center" \
 		--commandfile "$DialogPATH" > /dev/null 2>&1 &
 	sleep 0.1
