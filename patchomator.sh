@@ -179,7 +179,7 @@ fi
 
 # These are labels that commonly need sorting out because they are DMG installers for which a PKG also exists, or alternate/localized versions. 
 # If you find this helpful, and want to add other labels to the distributed script, open a PR at https://github.com/Mac-Nerd/patchomator/
-recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
+recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxesrintl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
 
 ### Default Installomator Options:
 InstallomatorOptions=(\
@@ -520,7 +520,7 @@ rollLogs() {
 		if [[ $prevLog -eq 0 ]]; then
 			srcLog="$logPATH"
 		else
-			srcLog="$logPATH.$prev"
+			srcLog="$logPATH.$prevLog"
 		fi
 		destLog="$logPATH.$i"
 
@@ -1055,7 +1055,7 @@ zparseopts -D -E -F -K -- \
 -version+=showversion \
 -fullversion+=showfullversion \
 -install=installmode I=installmode \
--updatescripts=updatescripts u=updatesscripts \
+-updatescripts=updatescripts u=updatescripts \
 -quiet=quietmode q=quietmode \
 -yes=noninteractive y=noninteractive \
 -verbose=verbose v=verbose \
@@ -1469,7 +1469,7 @@ then
 					(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${recIgnoreLabel}\"" $configFile
 					ignoredLabelsArray["$recIgnoreLabel"]=1
 				else
-					error "No such label ${ignoredLabel}"
+					notice "Recommended label ${recIgnoreLabel} is not in ${fragmentsPATH}/labels. Skipping."
 				fi
 			done
 			continue
