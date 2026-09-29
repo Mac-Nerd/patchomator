@@ -1469,7 +1469,7 @@ then
 					(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${recIgnoreLabel}\"" $configFile
 					ignoredLabelsArray["$recIgnoreLabel"]=1
 				else
-					error "No such label ${recIgnoreLabel}"
+					notice "Recommended label ${recIgnoreLabel} is not in ${fragmentsPATH}/labels. Skipping."
 				fi
 			done
 			continue
