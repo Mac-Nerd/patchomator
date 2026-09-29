@@ -1055,7 +1055,7 @@ zparseopts -D -E -F -K -- \
 -version+=showversion \
 -fullversion+=showfullversion \
 -install=installmode I=installmode \
--updatescripts=updatescripts u=updatesscripts \
+-updatescripts=updatescripts u=updatescripts \
 -quiet=quietmode q=quietmode \
 -yes=noninteractive y=noninteractive \
 -verbose=verbose v=verbose \
