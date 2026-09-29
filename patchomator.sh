@@ -1469,7 +1469,7 @@ then
 					(( ${#writeconfig} )) && /usr/libexec/PlistBuddy -c "add \":IgnoredLabels:\" string \"${recIgnoreLabel}\"" $configFile
 					ignoredLabelsArray["$recIgnoreLabel"]=1
 				else
-					error "No such label ${ignoredLabel}"
+					error "No such label ${recIgnoreLabel}"
 				fi
 			done
 			continue
