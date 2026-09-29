@@ -520,7 +520,7 @@ rollLogs() {
 		if [[ $prevLog -eq 0 ]]; then
 			srcLog="$logPATH"
 		else
-			srcLog="$logPATH.$prev"
+			srcLog="$logPATH.$prevLog"
 		fi
 		destLog="$logPATH.$i"
 
