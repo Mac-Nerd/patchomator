@@ -178,6 +178,7 @@ The current list of recommended ignored labels is:
 - firefox_da
 - firefox_intl
 - firefoxesr
+- firefoxesr_intl
 - firefoxesrintl
 - firefoxpkg_intl
 - googlechrome

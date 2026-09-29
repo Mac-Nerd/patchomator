@@ -179,7 +179,7 @@ fi
 
 # These are labels that commonly need sorting out because they are DMG installers for which a PKG also exists, or alternate/localized versions. 
 # If you find this helpful, and want to add other labels to the distributed script, open a PR at https://github.com/Mac-Nerd/patchomator/
-recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesrintl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
+recommendedIgnores=("bbedit" "firefox" "firefox_da" "firefox_intl" "firefoxesr" "firefoxesr_intl" "firefoxesrintl" "firefoxpkg_intl" "googlechrome" "googlechromeenterprise" "microsoftofficebusinesspro" "microsoftonedrive-deferred" "microsoftonedrive-rollingout" "microsoftonedrive-rollingoutdeferred" "microsoftonedrivesuinsiders" "microsoftonedrivesuprod" "microsoftoutlook-monthly" "zoomgov" "zoomclient" "virtualboxbeta" "virtualboxlatest" "virtualboxstable") 
 
 ### Default Installomator Options:
 InstallomatorOptions=(\
