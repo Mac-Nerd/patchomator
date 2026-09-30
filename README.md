@@ -104,7 +104,7 @@ Show usage message and exits.
 ### Default interactive usage
 When run, Patchomator will prompt you to install Installomator, if it doesn't already exist at the default path or the one specified with `-p [InstallomatorPATH]`. Patchomator will happily run without Installomator, but can't actually install any updates by itself.
 
-If the Installomator label files are not present, or are older than 30 days, they will be downloaded from the _latest Installomator release_ on GitHub and put in a directory called "fragments" in the same directory as patchomator.sh
+If the Installomator label files are not present, or are older than 30 days, they will be downloaded from the _latest Installomator release_ on GitHub and put in a directory called "fragments" in the same directory as patchomator.sh. Each download replaces the whole directory, so labels removed from Installomator are removed here too. The previous labels are kept in "fragments.old" until the next download.
 
 
 ### Configuration

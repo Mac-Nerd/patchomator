@@ -540,7 +540,6 @@ downloadLatestLabels() {
 	latestURL=$(curl -sSL -o - "https://api.github.com/repos/Installomator/Installomator/releases/latest" | grep tarball_url | awk '{gsub(/[",]/,"")}{print $2}') # remove quotes and comma from the returned string
 	#eg "https://api.github.com/repos/Installomator/Installomator/tarball/v10.3"
 
-# 	temptarDirectory=$( mktemp -d )
  	tarPath="$tempPath/installomator.latest.tar.gz"
 
 	notice "Downloading ${latestURL} to ${tarPath}"
@@ -550,14 +549,38 @@ downloadLatestLabels() {
 
 	dialogPercent 3 5
 
-	notice "Extracting ${tarPath} into ${patchomatorPath}"
-	tar -xz --include='*/fragments/*' -f "$tarPath" --strip-components 1 -C "$patchomatorPath" || fatal "Unable to extract ${tarPath}. Corrupt or incomplete download?"
-	touch "${fragmentsPATH}/labels/"
-	dialogPercent 5 5
+	# Extract into a staging folder next to fragments, then swap it in
+	stagingPath="$patchomatorPath/fragments.download"
+	rm -Rf "$stagingPath"
+	mkdir -p "$stagingPath" || fatal "Unable to create $stagingPath. Re-run patchomator with sudo."
 
-	# Remove the temporary working directory when done
-	notice "Deleting working directory '$temptarDirectory' and its contents"
-	rm -Rf "$temptarDirectory" 2>/dev/null
+	notice "Extracting $tarPath into $stagingPath"
+	if ! tar -xz --include='*/fragments/*' -f "$tarPath" --strip-components 1 -C "$stagingPath"; then
+		rm -Rf "$stagingPath"
+		fatal "Unable to extract $tarPath. Corrupt or incomplete download? Keeping the existing labels at $fragmentsPATH."
+	fi
+
+	# Keep the current labels unless the download looks complete.
+	if [[ ! -f "$stagingPath/fragments/functions.sh" ]] || [[ -z "$(ls "$stagingPath"/fragments/labels/*.sh 2>/dev/null)" ]]; then
+		rm -Rf "$stagingPath"
+		fatal "Downloaded labels are incomplete. Keeping the existing labels at $fragmentsPATH."
+	fi
+
+	dialogPercent 4 5
+
+	# The previous labels are kept in fragments.old until the next download
+	notice "Replacing $fragmentsPATH. The previous labels are kept in $fragmentsPATH.old"
+	rm -Rf "$fragmentsPATH.old"
+	if [[ -d "$fragmentsPATH" ]]; then
+		mv "$fragmentsPATH" "$fragmentsPATH.old" || fatal "Unable to move $fragmentsPATH aside."
+	fi
+	if ! mv "$stagingPath/fragments" "$fragmentsPATH"; then
+		[[ -d "$fragmentsPATH.old" ]] && mv "$fragmentsPATH.old" "$fragmentsPATH"
+		fatal "Unable to move the new labels into $fragmentsPATH. Restored the previous labels."
+	fi
+	rm -Rf "$stagingPath"
+	touch "$fragmentsPATH/labels/"
+	dialogPercent 5 5
 }
 
 # --install
