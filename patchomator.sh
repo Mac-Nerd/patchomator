@@ -669,7 +669,7 @@ FindAppFromLabel() {
 				mdfindAppList=$(mdfind -onlyin "/Applications/" -onlyin "/usr/local/" -onlyin "/Library/" "kMDItemContentType == 'com.apple.application-bundle'")
 			fi
 		fi
-		applist=$(grep "/$appName" <<< "$mdfindAppList")
+		applist=$(grep "/$appName\$" <<< "$mdfindAppList")
 	fi
 
 	appPathArray=( ${(0)applist} )
