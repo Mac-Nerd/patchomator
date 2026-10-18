@@ -1485,8 +1485,13 @@ fi
 
 # get current user
 currentUser=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
-uid=$(id -u "$currentUser")
-notice "Current User: $currentUser (UID $uid)"
+if [[ -n "$currentUser" && "$currentUser" != "loginwindow" ]]; then
+	uid=$(id -u "$currentUser")
+	notice "Current User: $currentUser (UID $uid)"
+else
+	# unattended runs with nobody logged in are normal, so carry on
+	notice "Current User: none (nobody logged in)"
+fi
 
 targetDir="/"
 
